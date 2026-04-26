@@ -1,0 +1,16 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.so
+
+# 环境变量
+.env
+
+# 持久化数据
+json_storage/
+log/
+account_data/
+
+# IDE
+.idea/
+.vscode/

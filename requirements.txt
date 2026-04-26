@@ -1,0 +1,6 @@
+pandas==1.5.3
+numpy==1.24.3
+ta-lib==0.6.7
+pytz==2023.3
+gm==3.0.183
+python-dotenv==1.0.0
