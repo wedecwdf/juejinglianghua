@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 条件判断公共辅助函数
-修改：_check_dynamic_profit_core 改为接收上下文对象而非通过字符串反射。
+修改：_check_dynamic_profit_core 接收配置对象，若未提供则使用全局常量。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any, Tuple, TYPE_CHECKING
@@ -24,8 +24,7 @@ from config.strategy import (
 )
 
 if TYPE_CHECKING:
-    from domain.contexts.condition2 import Condition2Context
-    from domain.contexts.condition9 import Condition9Context
+    from config.strategy.config_objects import Condition2Config, Condition9Config
 
 
 def _sell_qty_by_percent(available_position: int, percent: float) -> int:
@@ -90,38 +89,26 @@ def _calculate_multiple_order_quantity(base_quantity: int, skipped_grids: int,
 # ==================== 重构的动态止盈公共内核 ====================
 
 def _check_dynamic_profit_core(
-    context: 'Condition2Context',  # 也可以是 Condition9Context，但需参数化
+    context,  # Condition2Context 或 Condition9Context
     increase: float,
     current_price: float,
     base_price: float,
     *,
-    enabled: bool,
-    max_sell_times: int,
-    trigger_percent: float,
-    decline_percent: float,
-    sell_price_offset: float,
-    dynamic_line_threshold: float,
-    sell_percent_high: float,
-    sell_percent_low: float,
+    config: Optional[any] = None,          # 接收 Condition2Config 或 Condition9Config
     condition_name: str,
     board_break_active: bool = False,
     priority_check_fn: Optional[callable] = None,
-    # 上下文属性 getter
-    get_triggered=lambda ctx: ctx.dynamic_profit_triggered,
-    set_triggered=lambda ctx, val: setattr(ctx, 'dynamic_profit_triggered', val),
-    get_high_price=lambda ctx: ctx.dynamic_profit_high_price,
-    set_high_price=lambda ctx, val: setattr(ctx, 'dynamic_profit_high_price', val),
-    get_profit_line=lambda ctx: ctx.dynamic_profit_line,
-    set_profit_line=lambda ctx, val: setattr(ctx, 'dynamic_profit_line', val),
-    get_sell_times=lambda ctx: ctx.dynamic_profit_sell_times,
-    inc_sell_times=None,
+    # 上下文属性 getter/setter 函数
+    get_triggered, set_triggered,
+    get_high_price, set_high_price,
+    get_profit_line, set_profit_line,
+    get_sell_times, inc_sell_times
 ) -> Optional[Dict[str, Any]]:
-    if board_break_active:
-        return None
-    if not enabled:
+
+    if board_break_active or config is None or not config.enabled:
         return None
     current_sell_times = get_sell_times(context)
-    if current_sell_times >= max_sell_times:
+    if current_sell_times >= config.max_sell_times:
         return None
     if priority_check_fn and priority_check_fn():
         return None
@@ -129,13 +116,14 @@ def _check_dynamic_profit_core(
     triggered = get_triggered(context)
 
     # 阶段一：启动监控
-    if increase >= trigger_percent:
+    if increase >= config.trigger_percent:
         if not triggered:
             set_triggered(context, True)
             set_high_price(context, current_price)
-            set_profit_line(context, current_price * (1 - decline_percent))
-            print(f'{context.symbol if hasattr(context, "symbol") else "?"}【{condition_name}动态止盈启动已启动】，初始基准价：{base_price:.4f} '
-                  f'当前涨跌幅：{increase*100:.2f}% 初始止盈线：{get_profit_line(context):.4f}')
+            set_profit_line(context, current_price * (1 - config.decline_percent))
+            print(f'{getattr(context, "symbol", "?")}【{condition_name}动态止盈启动已启动】，'
+                  f'初始基准价：{base_price:.4f} 当前涨跌幅：{increase*100:.2f}% '
+                  f'初始止盈线：{get_profit_line(context):.4f}')
         return None
 
     if not triggered:
@@ -145,7 +133,7 @@ def _check_dynamic_profit_core(
     current_high = get_high_price(context)
     if current_price > current_high:
         set_high_price(context, current_price)
-        new_profit_line = current_price * (1 - decline_percent)
+        new_profit_line = current_price * (1 - config.decline_percent)
         set_profit_line(context, new_profit_line)
         print(f'【{condition_name}动态止盈】更新动态止盈线：{new_profit_line:.4f}')
         return None
@@ -154,10 +142,11 @@ def _check_dynamic_profit_core(
     current_profit_line = get_profit_line(context)
     if current_price <= current_profit_line:
         dynamic_line_increase = (current_profit_line - base_price) / base_price if base_price > 0 else 0
-        sell_percent = sell_percent_high if dynamic_line_increase >= dynamic_line_threshold else sell_percent_low
+        sell_percent = config.sell_percent_high if dynamic_line_increase >= config.dynamic_line_threshold \
+                       else config.sell_percent_low
         return {
             'reason': f'{condition_name}动态止盈触发',
-            'sell_price_offset': sell_price_offset,
+            'sell_price_offset': config.sell_price_offset,
             'sell_percent': sell_percent,
             'trigger_data': {
                 'pre_trigger_state': True,

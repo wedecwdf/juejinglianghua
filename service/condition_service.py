@@ -1,8 +1,7 @@
 # service/condition_service.py
 # -*- coding: utf-8 -*-
 """
-所有编号条件检查入口，保持对外接口兼容。
-修改：增加上下文参数并委托给新实现。
+所有编号条件检查入口，提供与旧版兼容的包装。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
@@ -12,7 +11,8 @@ from domain.contexts.condition8 import Condition8Context
 from domain.contexts.condition9 import Condition9Context
 from domain.contexts.condition4_7 import Condition4To7Context
 from domain.contexts.pyramid import PyramidContext
-from domain.stores import OrderLedger
+from domain.stores import OrderLedger, SessionRegistry
+from config.strategy.config_objects import Condition2Config, Condition9Config
 
 from service.conditions import (
     check_condition2 as _cond2,
@@ -25,10 +25,10 @@ from service.conditions import (
     check_pyramid_profit as _pyramid,
 )
 
-def check_condition2(day_data: DayData, increase: float, current_price: float,
-                     base_price: float, context: Condition2Context,
-                     board_break_active: bool = False) -> Optional[Dict[str, Any]]:
-    return _cond2(context, increase, current_price, base_price, board_break_active)
+def check_condition2(context: Condition2Context, increase: float, current_price: float,
+                     base_price: float, board_break_active: bool = False,
+                     config: Optional[Condition2Config] = None) -> Optional[Dict[str, Any]]:
+    return _cond2(context, increase, current_price, base_price, board_break_active, config)
 
 def check_condition4(day_data: DayData, context: Condition4To7Context,
                      current_price: float) -> Optional[Dict[str, Any]]:
@@ -51,11 +51,11 @@ def check_condition8(day_data: DayData, context: Condition8Context, current_pric
                      order_ledger: Optional[OrderLedger] = None) -> Optional[Dict[str, Any]]:
     return _cond8(day_data, context, current_price, available_position, order_ledger)
 
-def check_condition9(day_data: DayData, increase: float, current_price: float,
-                     base_price: float, context: Condition9Context,
-                     board_break_active: bool = False,
-                     condition2_active: bool = False) -> Optional[Dict[str, Any]]:
-    return _cond9(context, increase, current_price, base_price, board_break_active, condition2_active)
+def check_condition9(context: Condition9Context, increase: float, current_price: float,
+                     base_price: float, board_break_active: bool = False,
+                     condition2_active: bool = False,
+                     config: Optional[Condition9Config] = None) -> Optional[Dict[str, Any]]:
+    return _cond9(context, increase, current_price, base_price, board_break_active, condition2_active, config)
 
 def check_pyramid_profit(symbol: str, context: PyramidContext, current_price: float,
                          available_position: int) -> Optional[Dict[str, Any]]:

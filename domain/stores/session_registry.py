@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 交易日行情会话注册表，管理 DayData 和各个条件上下文。
-持久化：save/load 仅处理策略状态（含 board_status/break_status）。
+补充公共接口，消除对外部 _gw 的穿透访问。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
@@ -43,6 +43,7 @@ class SessionRegistry:
     def items(self) -> Dict[str, DayData]:
         return self._gw.current_day_data
 
+    # ---------- 累计买入量 ----------
     def get_total_buy_quantity(self, symbol: str) -> int:
         return self._gw.total_buy_quantity.get(symbol, 0)
 
@@ -51,6 +52,16 @@ class SessionRegistry:
 
     def reset_total_buy(self, symbol: str) -> None:
         self._gw.total_buy_quantity[symbol] = 0
+
+    # ---------- 总卖出次数（原 _gw.total_sell_times） ----------
+    def get_total_sell_times(self, symbol: str) -> int:
+        return self._gw.total_sell_times.get(symbol, 0)
+
+    def increment_total_sell_times(self, symbol: str, delta: int = 1):
+        self._gw.total_sell_times[symbol] = self._gw.total_sell_times.get(symbol, 0) + delta
+
+    def reset_total_sell_times(self, symbol: str):
+        self._gw.total_sell_times[symbol] = 0
 
     # ---------- 条件上下文访问 ----------
     def get_condition2(self, symbol: str) -> Condition2Context:

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-重构后：仓库注入，共享实例。
+重构后：依赖注入 + TickContext，消除模块级全局单例。
 """
 from __future__ import annotations
 import os
@@ -97,10 +97,12 @@ from use_case.init_assets import build_tracking_symbols
 from repository.gm_data_source import load_history_data, get_cash, get_position
 from domain.day_data import DayData
 from domain.stores import SessionRegistry, BoardStateRepository, CallbackTaskStore, OrderLedger
+from domain.contexts.tick_context import TickContext
+from config.strategy.config_objects import load_strategy_config
 from service.indicator_service import calculate_indicators
 from repository.mail_sender import send_email
 from service.order_cancel_service import start_auto_cancel_thread
-from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status, init_repos
+from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
@@ -198,7 +200,10 @@ def real_init(context):
     print_strategy_init_banner()
     print("开始加载持久化数据...")
 
-    # 创建仓库实例（进程级共享）
+    # 加载策略配置（可通过环境变量覆盖）
+    strategy_config = load_strategy_config()
+
+    # 创建仓库实例
     session_registry = SessionRegistry()
     session_registry.load()
     board_repo = BoardStateRepository()
@@ -208,8 +213,15 @@ def real_init(context):
     order_ledger = OrderLedger()
     order_ledger.load()
 
-    # 注入到事件处理器，确保 on_tick 等使用同一组实例
-    init_repos(session_registry, board_repo, callback_store, order_ledger)
+    # 组装 TickContext 并保存到 context.data，供 on_tick 使用
+    tick_ctx = TickContext(
+        session_registry=session_registry,
+        board_repo=board_repo,
+        callback_store=callback_store,
+        order_ledger=order_ledger,
+        config=strategy_config,
+    )
+    context.data['tick_context'] = tick_ctx
 
     symbols = build_tracking_symbols()
     if not symbols:
@@ -259,7 +271,7 @@ def real_init(context):
             json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         print(f"账户数据已导出到: {export_path}")
 
-    # 收盘线程，捕获仓库实例
+    # 收盘线程，捕获 tick_ctx 供调用
     def _daily_close():
         while True:
             now = datetime.now(beijing_tz)

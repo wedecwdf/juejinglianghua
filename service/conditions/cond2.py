@@ -1,22 +1,12 @@
 # service/conditions/cond2.py
 # -*- coding: utf-8 -*-
 """
-条件2：动态止盈（直接操作 Condition2Context）
+条件2：动态止盈，接收配置对象实现依赖注入。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
 from domain.contexts.condition2 import Condition2Context
-from config.strategy import (
-    CONDITION2_ENABLED,
-    CONDITION2_DYNAMIC_PROFIT_ENABLED,
-    MAX_DYNAMIC_PROFIT_SELL_TIMES,
-    CONDITION2_TRIGGER_PERCENT,
-    CONDITION2_DECLINE_PERCENT,
-    CONDITION2_SELL_PRICE_OFFSET,
-    CONDITION2_DYNAMIC_LINE_THRESHOLD,
-    CONDITION2_SELL_PERCENT_HIGH,
-    CONDITION2_SELL_PERCENT_LOW,
-)
+from config.strategy.config_objects import Condition2Config, load_strategy_config
 from .utils import _check_dynamic_profit_core
 
 def check_condition2(
@@ -24,21 +14,17 @@ def check_condition2(
     increase: float,
     current_price: float,
     base_price: float,
-    board_break_active: bool = False
+    board_break_active: bool = False,
+    config: Optional[Condition2Config] = None,
 ) -> Optional[Dict[str, Any]]:
+    if config is None:
+        config = load_strategy_config().condition2  # 默认使用全局配置
     return _check_dynamic_profit_core(
         context=context,
         increase=increase,
         current_price=current_price,
         base_price=base_price,
-        enabled=CONDITION2_ENABLED and CONDITION2_DYNAMIC_PROFIT_ENABLED,
-        max_sell_times=MAX_DYNAMIC_PROFIT_SELL_TIMES,
-        trigger_percent=CONDITION2_TRIGGER_PERCENT,
-        decline_percent=CONDITION2_DECLINE_PERCENT,
-        sell_price_offset=CONDITION2_SELL_PRICE_OFFSET,
-        dynamic_line_threshold=CONDITION2_DYNAMIC_LINE_THRESHOLD,
-        sell_percent_high=CONDITION2_SELL_PERCENT_HIGH,
-        sell_percent_low=CONDITION2_SELL_PERCENT_LOW,
+        config=config,
         condition_name='条件2',
         board_break_active=board_break_active,
         get_triggered=lambda c: c.dynamic_profit_triggered,

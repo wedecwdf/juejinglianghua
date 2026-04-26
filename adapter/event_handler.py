@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 事件薄转发层
-修改：仓库实例由 init_repos() 注入，消除重复创建。
+不再持有全局单例，全部从 context.data 获取 TickContext。
 """
 from __future__ import annotations
 from datetime import datetime
@@ -11,41 +11,34 @@ from use_case.handle_tick import handle_tick
 from use_case.handle_close import handle_market_close
 from use_case.health_check import update_sleep_state
 from repository.mail_sender import send_email
-from domain.stores import OrderLedger, BoardStateRepository, SessionRegistry, CallbackTaskStore
+from domain.contexts.tick_context import TickContext
 import pytz
 import traceback
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
-# 将由 main.real_init 注入
-_order_ledger: OrderLedger = None
-_board_repo: BoardStateRepository = None
-_session_registry: SessionRegistry = None
-_callback_store: CallbackTaskStore = None
-
-def init_repos(session: SessionRegistry, board: BoardStateRepository,
-               callback: CallbackTaskStore, order: OrderLedger):
-    global _session_registry, _board_repo, _callback_store, _order_ledger
-    _session_registry = session
-    _board_repo = board
-    _callback_store = callback
-    _order_ledger = order
+def _get_tick_ctx(context) -> TickContext:
+    return context.data['tick_context']
 
 def on_tick(context: Any, tick: dict[str, Any]) -> None:
     try:
         ctx = ContextWrapper(context)
-        current_sleep = _order_ledger.get_sleep_state()
+        tick_ctx = _get_tick_ctx(context)
+        current_sleep = tick_ctx.order_ledger.get_sleep_state()
         new_sleep = update_sleep_state(ctx.now(), current_sleep)
         if new_sleep != current_sleep:
-            _order_ledger.set_sleep_state(new_sleep)
+            tick_ctx.order_ledger.set_sleep_state(new_sleep)
         if new_sleep:
             return
 
-        handle_tick(tick, _session_registry, _board_repo, _callback_store, _order_ledger)
+        handle_tick(tick, tick_ctx)
         tick_time = tick["created_at"].astimezone(beijing_tz)
         if (tick_time.hour == 15 and tick_time.minute >= 0) or tick_time.hour > 15:
             handle_market_close(tick["symbol"], tick_time,
-                                _session_registry, _board_repo, _callback_store, _order_ledger)
+                                tick_ctx.session_registry,
+                                tick_ctx.board_repo,
+                                tick_ctx.callback_store,
+                                tick_ctx.order_ledger)
     except Exception as e:
         print(f"on_tick 异常: {e}")
         traceback.print_exc()
@@ -64,6 +57,7 @@ def on_backtest_finished(context: Any, indicator: dict[str, Any]) -> None:
 
 def on_order_status(context: Any, order: dict[str, Any]) -> None:
     try:
+        tick_ctx = _get_tick_ctx(context)
         status = order.get("status")
         cl_ord_id = order.get("cl_ord_id")
         symbol = order.get("symbol")
@@ -82,14 +76,14 @@ def on_order_status(context: Any, order: dict[str, Any]) -> None:
                     break
 
             if exec_price > 0:
-                _order_ledger.record_condition8_done_price(symbol, exec_price)
+                tick_ctx.order_ledger.record_condition8_done_price(symbol, exec_price)
 
             if order.get("side") == 2:
-                pending_order = _order_ledger.get_pending_order(cl_ord_id)
+                pending_order = tick_ctx.order_ledger.get_pending_order(cl_ord_id)
                 condition_type = pending_order.get("condition_type") if pending_order else None
 
                 if condition_type in ['condition2', 'condition9', 'condition8', 'pyramid_profit']:
-                    board_status = _board_repo.get_board_status(symbol)
+                    board_status = tick_ctx.board_repo.get_board_status(symbol)
                     prev_close = board_status.prev_close if board_status else 0.0
                     if prev_close > 0:
                         sell_amount = exec_price * exec_volume
@@ -97,7 +91,7 @@ def on_order_status(context: Any, order: dict[str, Any]) -> None:
                         task = add_callback_task(
                             symbol=symbol, sell_price=exec_price, prev_close=prev_close,
                             sell_amount=sell_amount, sell_quantity=exec_volume,
-                            condition_type=condition_type, store=_callback_store
+                            condition_type=condition_type, store=tick_ctx.callback_store
                         )
                         if task:
                             send_email(
@@ -107,11 +101,11 @@ def on_order_status(context: Any, order: dict[str, Any]) -> None:
                                 f"触发价:{task.trigger_price:.4f}\n计划买入:{task.buy_quantity}股"
                             )
 
-            _order_ledger.cancel_condition8_opposite(symbol, cl_ord_id)
+            tick_ctx.order_ledger.cancel_condition8_opposite(symbol, cl_ord_id)
 
         elif status == 23:  # 已撤
-            _order_ledger.clear_condition8_state(symbol)
-            _order_ledger.mark_cancelled(symbol)
+            tick_ctx.order_ledger.clear_condition8_state(symbol)
+            tick_ctx.order_ledger.mark_cancelled(symbol)
 
     except Exception as e:
         print(f"on_order_status 异常: {e}")
