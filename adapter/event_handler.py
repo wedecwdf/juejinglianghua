@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 事件薄转发层
-模块级仓库实例，确保 tick 与收盘处理使用统一仓库。
+修改：仓库实例由 init_repos() 注入，消除重复创建。
 """
 from __future__ import annotations
 from datetime import datetime
@@ -17,14 +17,21 @@ import traceback
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
-# 进程级共享仓库实例
-_order_ledger = OrderLedger()
-_board_repo = BoardStateRepository()
-_session_registry = SessionRegistry()
-_callback_store = CallbackTaskStore()
+# 将由 main.real_init 注入
+_order_ledger: OrderLedger = None
+_board_repo: BoardStateRepository = None
+_session_registry: SessionRegistry = None
+_callback_store: CallbackTaskStore = None
+
+def init_repos(session: SessionRegistry, board: BoardStateRepository,
+               callback: CallbackTaskStore, order: OrderLedger):
+    global _session_registry, _board_repo, _callback_store, _order_ledger
+    _session_registry = session
+    _board_repo = board
+    _callback_store = callback
+    _order_ledger = order
 
 def on_tick(context: Any, tick: dict[str, Any]) -> None:
-    """单 tick 入口"""
     try:
         ctx = ContextWrapper(context)
         current_sleep = _order_ledger.get_sleep_state()
@@ -56,7 +63,6 @@ def on_backtest_finished(context: Any, indicator: dict[str, Any]) -> None:
     send_email("回测结束", str(indicator))
 
 def on_order_status(context: Any, order: dict[str, Any]) -> None:
-    """监听交易所回报"""
     try:
         status = order.get("status")
         cl_ord_id = order.get("cl_ord_id")

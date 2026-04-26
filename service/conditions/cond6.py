@@ -1,16 +1,15 @@
+# service/conditions/cond6.py
 # -*- coding: utf-8 -*-
-"""
-条件6：低于MA12买入
-"""
 from __future__ import annotations
 from typing import Optional, Dict, Any
 from domain.day_data import DayData
+from domain.contexts.condition4_7 import Condition4To7Context
 from config.strategy import CONDITION6_ENABLED, BUY_BELOW_MA12_QUANTITY
 
-
-def check_condition6(day_data: DayData, current_price: float) -> Optional[Dict[str, Any]]:
+def check_condition6(day_data: DayData, context: Condition4To7Context,
+                     current_price: float) -> Optional[Dict[str, Any]]:
     if (CONDITION6_ENABLED and day_data.ma12 is not None and
-            current_price < day_data.ma12 and not day_data.buy_condition6_triggered):
+            current_price < day_data.ma12 and not context.buy_condition6_triggered):
         return {
             'reason': '低于MA12买入',
             'quantity': BUY_BELOW_MA12_QUANTITY,

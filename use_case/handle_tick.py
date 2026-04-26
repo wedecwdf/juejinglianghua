@@ -2,8 +2,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-单 tick 完整流程 - 依赖注入版
-不再内部创建仓库实例。
+单 tick 完整流程 - 依赖注入版，使用条件上下文。
 """
 from __future__ import annotations
 from datetime import date, datetime
@@ -13,7 +12,7 @@ from repository.gm_data_source import get_available_position
 from service.tick_data_service import update_day_data, refresh_indicators, print_tick_snapshot
 from service.trade_engine import execute_conditions
 from use_case.health_check import is_in_trading_hours
-from domain.stores import SessionRegistry, BoardStateRepository, CallbackTaskStore, OrderLedger
+from domain.stores import BoardStateRepository, CallbackTaskStore, OrderLedger, SessionRegistry
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
@@ -33,22 +32,29 @@ def handle_tick(tick: Dict[str, Any],
         print(f"【撤单保护】{symbol} 正在撤单中，跳过本次 tick 处理")
         return
 
+    # 更新 DayData（仅行情）
     day_data = update_day_data(symbol, tick, tick_date, session_registry)
 
-    if day_data.condition2_post_cancel_rechecked:
-        day_data.condition2_post_cancel_rechecked = False
-    if day_data.condition9_post_cancel_rechecked:
-        day_data.condition9_post_cancel_rechecked = False
+    # 防重复标记清理
+    ctx2 = session_registry.get_condition2(symbol)
+    ctx9 = session_registry.get_condition9(symbol, day_data.base_price)
+    if getattr(ctx2, '_post_cancel_rechecked', False):
+        ctx2._post_cancel_rechecked = False
+    if getattr(ctx9, '_post_cancel_rechecked', False):
+        ctx9._post_cancel_rechecked = False
 
+    # 检查撤单后重新判断标记（由 order_cancel_service 设置）
     if order_ledger.pop_cancelled(symbol):
         print(f"【撤单再判断】{symbol} 上次撤单已清除，立即重新判断条件")
 
+    # 指标刷新
     refresh_indicators(symbol, day_data)
     available_position = get_available_position(symbol)
 
     base_price = day_data.base_price
-    print_tick_snapshot(symbol, current_price, day_data)
+    print_tick_snapshot(symbol, current_price, day_data, session_registry)
 
+    # 执行交易条件
     execute_conditions(symbol, current_price, tick_time, available_position,
                        day_data, base_price,
                        board_repo=board_repo,

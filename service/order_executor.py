@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 订单执行服务
+修改：不再直接修改 DayData 的条件状态，改为通过上下文操作。
 """
 from __future__ import annotations
 from datetime import datetime
@@ -67,9 +68,10 @@ def place_sell(symbol: str, price: float, quantity: int,
     if condition_type == "condition8":
         day_data = session_registry.get(symbol)
         if day_data:
-            day_data.condition8_last_trade_price = price
-            day_data.condition8_sell_triggered_for_current_ref = True
-            current_ref = trigger_data.get('current_ref_price', day_data.condition8_reference_price)
+            ctx8 = session_registry.get_condition8(symbol, day_data.base_price)
+            ctx8.condition8_last_trade_price = price
+            ctx8.condition8_sell_triggered_for_current_ref = True
+            current_ref = trigger_data.get('current_ref_price', ctx8.condition8_reference_price)
             print(f"【条件8挂单】{symbol} 卖出委托 {price:.4f} 已记录，基准价 {current_ref:.4f} 下卖出挂单状态已标记")
 
         if trigger_data and trigger_data.get("is_multiple_order"):
@@ -131,9 +133,10 @@ def place_buy(symbol: str, price: float, quantity: int,
     if condition_type == "condition8":
         day_data = session_registry.get(symbol)
         if day_data:
-            day_data.condition8_last_trade_price = price
-            day_data.condition8_buy_triggered_for_current_ref = True
-            current_ref = trigger_data.get('current_ref_price', day_data.condition8_reference_price)
+            ctx8 = session_registry.get_condition8(symbol, day_data.base_price)
+            ctx8.condition8_last_trade_price = price
+            ctx8.condition8_buy_triggered_for_current_ref = True
+            current_ref = trigger_data.get('current_ref_price', ctx8.condition8_reference_price)
             print(f"【条件8挂单】{symbol} 买入委托 {price:.4f} 已记录，基准价 {current_ref:.4f} 下买入挂单状态已标记")
 
         if trigger_data and trigger_data.get("is_multiple_order"):

@@ -2,10 +2,14 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-仓库实例在 real_init 中创建并共享给所有子线程。
+重构后：仓库注入，共享实例。
 """
 from __future__ import annotations
-import os, sys, json, threading, time
+import os
+import sys
+import json
+import threading
+import time
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from gm.api import run, MODE_LIVE, ADJUST_PREV, set_token, subscribe
@@ -28,36 +32,64 @@ from config.account import (
     ACCOUNT_DATA_EXPORT_DIR,
 )
 from config.strategy import (
-    MAX_CONDITION8_TRADE_TIMES, CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT,
-    CONDITION8_SELL_QUANTITY, CONDITION8_BUY_QUANTITY,
-    CONDITION8_PRICE_BAND_ENABLED, CONDITION8_UPPER_BAND_PERCENT,
-    CONDITION8_LOWER_BAND_PERCENT, CONDITION8_MULTIPLE_ORDER_ENABLED,
-    CONDITION8_GRID_INTERVAL_PERCENT, CONDITION8_MAX_MULTIPLE_LIMIT,
-    CONDITION8_HIGH_FREQ_GRID_INTERVAL, CONDITION8_LOW_FREQ_GRID_INTERVAL,
-    CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT,
-    CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT,
-    HIGH_FREQUENCY_STOCKS, LOW_FREQUENCY_STOCKS,
-    SYMBOLS_SOURCE, MANUAL_SYMBOLS_ENABLED, MANUAL_SYMBOLS,
+    MAX_CONDITION8_TRADE_TIMES,
+    CONDITION8_RISE_PERCENT,
+    CONDITION8_DECLINE_PERCENT,
+    CONDITION8_SELL_QUANTITY,
+    CONDITION8_BUY_QUANTITY,
+    CONDITION8_PRICE_BAND_ENABLED,
+    CONDITION8_UPPER_BAND_PERCENT,
+    CONDITION8_LOWER_BAND_PERCENT,
+    CONDITION8_MULTIPLE_ORDER_ENABLED,
+    CONDITION8_GRID_INTERVAL_PERCENT,
+    CONDITION8_MAX_MULTIPLE_LIMIT,
+    CONDITION8_HIGH_FREQ_GRID_INTERVAL,
+    CONDITION8_LOW_FREQ_GRID_INTERVAL,
+    CONDITION8_HIGH_FREQ_RISE_PERCENT,
+    CONDITION8_HIGH_FREQ_DECLINE_PERCENT,
+    CONDITION8_LOW_FREQ_RISE_PERCENT,
+    CONDITION8_LOW_FREQ_DECLINE_PERCENT,
+    HIGH_FREQUENCY_STOCKS,
+    LOW_FREQUENCY_STOCKS,
+    SYMBOLS_SOURCE,
+    MANUAL_SYMBOLS_ENABLED,
+    MANUAL_SYMBOLS,
     ENABLE_SLEEP_MODE,
-    CALLBACK_ADDITION_ENABLED, MIN_TRADE_UNIT,
-    CALLBACK_ON_CONDITION2, CALLBACK_ON_CONDITION9, CALLBACK_ON_CONDITION8,
-    CONDITION2_ENABLED, CONDITION2_TRIGGER_PERCENT,
-    CONDITION2_DECLINE_PERCENT, CONDITION2_SELL_PRICE_OFFSET,
-    CONDITION2_DYNAMIC_LINE_THRESHOLD, CONDITION2_SELL_PERCENT_HIGH,
+    CALLBACK_ADDITION_ENABLED,
+    MIN_TRADE_UNIT,
+    CALLBACK_ON_CONDITION2,
+    CALLBACK_ON_CONDITION9,
+    CALLBACK_ON_CONDITION8,
+    CONDITION2_ENABLED,
+    CONDITION2_TRIGGER_PERCENT,
+    CONDITION2_DECLINE_PERCENT,
+    CONDITION2_SELL_PRICE_OFFSET,
+    CONDITION2_DYNAMIC_LINE_THRESHOLD,
+    CONDITION2_SELL_PERCENT_HIGH,
     CONDITION2_SELL_PERCENT_LOW,
-    CONDITION9_ENABLED, CONDITION9_UPPER_BAND_PERCENT,
-    CONDITION9_LOWER_BAND_PERCENT, CONDITION9_TRIGGER_PERCENT,
-    CONDITION9_DECLINE_PERCENT, CONDITION9_SELL_PRICE_OFFSET,
-    CONDITION9_DYNAMIC_LINE_THRESHOLD, CONDITION9_SELL_PERCENT_HIGH,
+    CONDITION9_ENABLED,
+    CONDITION9_UPPER_BAND_PERCENT,
+    CONDITION9_LOWER_BAND_PERCENT,
+    CONDITION9_TRIGGER_PERCENT,
+    CONDITION9_DECLINE_PERCENT,
+    CONDITION9_SELL_PRICE_OFFSET,
+    CONDITION9_DYNAMIC_LINE_THRESHOLD,
+    CONDITION9_SELL_PERCENT_HIGH,
     CONDITION9_SELL_PERCENT_LOW,
-    CONDITION4_ENABLED, BUY_BELOW_MA4_QUANTITY,
-    CONDITION5_ENABLED, BUY_BELOW_MA8_QUANTITY,
-    CONDITION6_ENABLED, BUY_BELOW_MA12_QUANTITY,
+    CONDITION4_ENABLED,
+    BUY_BELOW_MA4_QUANTITY,
+    CONDITION5_ENABLED,
+    BUY_BELOW_MA8_QUANTITY,
+    CONDITION6_ENABLED,
+    BUY_BELOW_MA12_QUANTITY,
     CONDITION7_ENABLED,
 )
 from config.calendar import (
-    TRADING_START_TIME, ENABLE_TRADING_START_TIME,
-    validate_calendar_config, STRATEGY_INIT_TIME, TRADING_HOURS
+    TRADING_START_TIME,
+    ENABLE_TRADING_START_TIME,
+    validate_calendar_config,
+    STRATEGY_INIT_TIME,
+    TRADING_HOURS
 )
 
 from use_case.health_check import is_trading_day, is_in_trading_hours
@@ -68,7 +100,7 @@ from domain.stores import SessionRegistry, BoardStateRepository, CallbackTaskSto
 from service.indicator_service import calculate_indicators
 from repository.mail_sender import send_email
 from service.order_cancel_service import start_auto_cancel_thread
-from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
+from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status, init_repos
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
@@ -166,7 +198,7 @@ def real_init(context):
     print_strategy_init_banner()
     print("开始加载持久化数据...")
 
-    # 创建仓库实例，进程级共享
+    # 创建仓库实例（进程级共享）
     session_registry = SessionRegistry()
     session_registry.load()
     board_repo = BoardStateRepository()
@@ -175,6 +207,9 @@ def real_init(context):
     callback_store.load()
     order_ledger = OrderLedger()
     order_ledger.load()
+
+    # 注入到事件处理器，确保 on_tick 等使用同一组实例
+    init_repos(session_registry, board_repo, callback_store, order_ledger)
 
     symbols = build_tracking_symbols()
     if not symbols:
@@ -193,25 +228,6 @@ def real_init(context):
 
         day_data = DayData(symbol, real_base_price, base_date)
         day_data.initialized = True
-
-        existing_day_data = session_registry.get(symbol)
-        if existing_day_data:
-            if (hasattr(existing_day_data, 'condition8_last_done_price') and
-                existing_day_data.condition8_last_done_price is not None and
-                existing_day_data.condition8_last_done_price > 0):
-                day_data.condition8_last_done_price = existing_day_data.condition8_last_done_price
-                day_data.condition8_has_done_trade = existing_day_data.condition8_has_done_trade
-                day_data.condition8_reference_price = existing_day_data.condition8_last_done_price
-                day_data.condition8_last_trade_price = existing_day_data.condition8_last_trade_price
-                print(f"从状态文件恢复 {symbol} 条件八基准价: {day_data.condition8_reference_price:.4f} (最近一次成功成交价)")
-            elif (hasattr(existing_day_data, 'condition8_reference_price') and
-                  existing_day_data.condition8_reference_price is not None and
-                  existing_day_data.condition8_reference_price > 0):
-                day_data.condition8_reference_price = existing_day_data.condition8_reference_price
-                day_data.condition8_has_done_trade = existing_day_data.condition8_has_done_trade
-                day_data.condition8_last_trade_price = existing_day_data.condition8_last_trade_price
-                print(f"从状态文件恢复 {symbol} 条件八基准价: {day_data.condition8_reference_price:.4f} (参考价)")
-
         session_registry.set(symbol, day_data)
 
     print("开始计算技术指标...")
@@ -243,7 +259,7 @@ def real_init(context):
             json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         print(f"账户数据已导出到: {export_path}")
 
-    # 定义收盘线程函数，捕获仓库实例
+    # 收盘线程，捕获仓库实例
     def _daily_close():
         while True:
             now = datetime.now(beijing_tz)
@@ -261,14 +277,6 @@ def real_init(context):
     threading.Thread(target=_daily_close, daemon=True).start()
     start_auto_cancel_thread(order_ledger, session_registry)
     print("【init】已启动 09:29 重新订阅、15:30 收盘处理、自动撤单守护线程")
-
-    # 重置条件8挂单状态标志
-    for symbol in symbols:
-        day_data = session_registry.get(symbol)
-        if day_data:
-            day_data.condition8_sell_triggered_for_current_ref = False
-            day_data.condition8_buy_triggered_for_current_ref = False
-    session_registry.save()
 
 def calculate_next_trading_start_time(now: datetime):
     now = now.astimezone(beijing_tz)

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 次日固定止损执行器（Layer 1）
+修改：使用 NextDayAdjustmentContext
 """
 from __future__ import annotations
 from typing import Optional
@@ -13,7 +14,8 @@ from service.order_executor import place_sell
 def execute_next_day_stop_loss(symbol: str, current_price: float,
                                available_position: int, day_data: DayData,
                                session_registry: SessionRegistry) -> bool:
-    sell_qty = check_dynamic_profit_next_day_adjustment(day_data, current_price, available_position)
+    adj_ctx = session_registry.get_next_day(symbol)
+    sell_qty = check_dynamic_profit_next_day_adjustment(adj_ctx, current_price, available_position)
     if sell_qty:
         place_sell(symbol, current_price, sell_qty,
                    "动态止盈次日调整机制止损", "dynamic_profit_next_day_adjustment", {},

@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 纯业务逻辑，不依赖 GM Context
-
-【清理完成】已移除所有向后兼容别名，统一使用最新命名
+清理后：仅导出条件检查函数和订单执行等核心接口。
 """
 from .indicator_service import calculate_indicators
 from .pyramid_service import (
@@ -34,12 +33,6 @@ from .condition_service import (
     check_condition8,
     check_condition9,
     check_pyramid_profit,
-    _sell_qty_by_percent,
-    _get_stock_frequency_type,
-    _get_condition8_thresholds,
-    _get_grid_interval_percent,
-    _calculate_skipped_grids,
-    _calculate_multiple_order_quantity,
 )
 from .order_executor import place_sell, place_buy, sell_qty_by_percent
 from .tick_data_service import update_day_data, refresh_indicators, print_tick_snapshot

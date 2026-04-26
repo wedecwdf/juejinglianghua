@@ -1,8 +1,8 @@
 # service/order_cancel_service.py
 # -*- coding: utf-8 -*-
 """
-自动撤单服务：定时扫描未成交委托，超时即撤。
-添加锁保护全局集合。
+自动撤单服务：定时扫描未成交委托，超时即撤；撤单成功后清除条件8最后一次成交价，允许再次触发
+修改：使用上下文设置重新判定标记。
 """
 from __future__ import annotations
 import threading
@@ -113,14 +113,18 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                     order_ledger.clear_condition8_state(symbol)
                     print(f'【条件8撤单清理】{symbol} 状态重置完成')
 
+                # 设置重新判定标记到上下文
                 if item.get("is_condition2") or item.get("is_condition9"):
-                    day_data = session_registry.get(symbol)
-                    if day_data:
-                        if item.get("is_condition2"):
-                            day_data.condition2_recheck_after_cancel = True
-                            print(f'【条件2撤单标记】{symbol} 设置重新判定标记')
-                        if item.get("is_condition9"):
-                            day_data.condition9_recheck_after_cancel = True
+                    if item.get("is_condition2"):
+                        ctx2 = session_registry.get_condition2(symbol)
+                        ctx2._recheck_after_cancel = True  # 临时属性
+                        print(f'【条件2撤单标记】{symbol} 设置重新判定标记')
+                    if item.get("is_condition9"):
+                        # 需要 base_price，从 day_data 获取
+                        day_data = session_registry.get(symbol)
+                        if day_data:
+                            ctx9 = session_registry.get_condition9(symbol, day_data.base_price)
+                            ctx9._recheck_after_cancel = True
                             print(f'【条件9撤单标记】{symbol} 设置重新判定标记')
 
                 order_ledger.mark_cancelled(symbol)

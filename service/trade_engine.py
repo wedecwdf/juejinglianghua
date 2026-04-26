@@ -1,8 +1,7 @@
 # service/trade_engine.py
 # -*- coding: utf-8 -*-
 """
-交易条件执行引擎 - 依赖注入版
-修复循环导入：延迟导入 use_case.health_check
+交易条件执行引擎 - 依赖注入版，使用条件上下文
 """
 from __future__ import annotations
 from datetime import datetime
@@ -11,10 +10,6 @@ from domain.board import BoardBreakState
 from domain.stores import BoardStateRepository, CallbackTaskStore, OrderLedger, SessionRegistry
 from config.calendar import TRADING_START_TIME
 from config.strategy import MAX_TOTAL_SELL_TIMES
-
-# 为避免循环导入，不再从 use_case 模块顶层导入
-# from use_case.health_check import should_start_trading, get_trading_start_datetime
-
 from service.execution import (
     execute_next_day_stop_loss,
     execute_board_mechanisms,
@@ -34,7 +29,6 @@ def execute_conditions(symbol: str, current_price: float,
                        callback_store: CallbackTaskStore,
                        order_ledger: OrderLedger,
                        session_registry: SessionRegistry) -> None:
-    # 延迟导入，避免循环依赖
     from use_case.health_check import should_start_trading, get_trading_start_datetime
 
     if not should_start_trading(tick_time):
@@ -49,7 +43,9 @@ def execute_conditions(symbol: str, current_price: float,
                           f"距离交易开始{TRADING_START_TIME}还有{hours}小时{minutes}分")
         return
 
-    if day_data.total_sell_times >= MAX_TOTAL_SELL_TIMES:
+    # 总卖出次数临时存储于 StateGateway，后续可改进
+    total_sell = session_registry._gw.total_sell_times.get(symbol, 0) if hasattr(session_registry._gw, 'total_sell_times') else 0
+    if total_sell >= MAX_TOTAL_SELL_TIMES:
         return
 
     # Layer 1
@@ -68,21 +64,24 @@ def execute_conditions(symbol: str, current_price: float,
     execute_pyramid_strategy(symbol, current_price, available_position, day_data, callback_store, session_registry)
 
     # 撤单重新判定
-    if day_data.condition2_recheck_after_cancel or day_data.condition9_recheck_after_cancel:
+    ctx2 = session_registry.get_condition2(symbol)
+    ctx9 = session_registry.get_condition9(symbol, base_price)
+    if getattr(ctx2, '_recheck_after_cancel', False) or getattr(ctx9, '_recheck_after_cancel', False):
         print(f"【重新判定触发】{symbol} 检测到动态止盈撤单后重新判定标记，优先执行重新判定")
-        execute_post_cancel_recheck(symbol, current_price, available_position, day_data, base_price, board_break_active)
+        execute_post_cancel_recheck(symbol, current_price, available_position, day_data, base_price,
+                                    board_break_active, session_registry)
 
     # Layer 4
-    if not day_data.condition2_post_cancel_rechecked:
+    if not getattr(ctx2, '_post_cancel_rechecked', False):
         if execute_condition2_profit(symbol, current_price, available_position, day_data, base_price, board_break_active, session_registry):
             return
     else:
         print(f"【条件2常规跳过】{symbol} 本次tick已进行撤单后重新判定，跳过常规条件2检查")
 
     # Layer 5
-    if not day_data.condition9_post_cancel_rechecked:
+    if not getattr(ctx9, '_post_cancel_rechecked', False):
         if execute_condition9_profit(symbol, current_price, available_position, day_data, base_price, board_break_active,
-                                     day_data.dynamic_profit_triggered, session_registry):
+                                     ctx2.dynamic_profit_triggered, session_registry):
             return
     else:
         print(f"【条件9常规跳过】{symbol} 本次tick已进行撤单后重新判定，跳过常规条件9检查")

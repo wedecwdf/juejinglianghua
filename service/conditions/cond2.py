@@ -1,11 +1,11 @@
+# service/conditions/cond2.py
 # -*- coding: utf-8 -*-
 """
-条件2：动态止盈（重构版，调用公共内核）
+条件2：动态止盈（直接操作 Condition2Context）
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
-
-from domain.day_data import DayData
+from domain.contexts.condition2 import Condition2Context
 from config.strategy import (
     CONDITION2_ENABLED,
     CONDITION2_DYNAMIC_PROFIT_ENABLED,
@@ -19,15 +19,15 @@ from config.strategy import (
 )
 from .utils import _check_dynamic_profit_core
 
-
-def check_condition2(day_data: DayData, increase: float,
-                     current_price: float, base_price: float,
-                     board_break_active: bool = False) -> Optional[Dict[str, Any]]:
-    """
-    条件2动态止盈入口 - 委托给公共内核处理
-    """
+def check_condition2(
+    context: Condition2Context,
+    increase: float,
+    current_price: float,
+    base_price: float,
+    board_break_active: bool = False
+) -> Optional[Dict[str, Any]]:
     return _check_dynamic_profit_core(
-        day_data=day_data,
+        context=context,
         increase=increase,
         current_price=current_price,
         base_price=base_price,
@@ -39,10 +39,14 @@ def check_condition2(day_data: DayData, increase: float,
         dynamic_line_threshold=CONDITION2_DYNAMIC_LINE_THRESHOLD,
         sell_percent_high=CONDITION2_SELL_PERCENT_HIGH,
         sell_percent_low=CONDITION2_SELL_PERCENT_LOW,
-        triggered_flag_attr='dynamic_profit_triggered',
-        high_price_attr='dynamic_profit_high_price',
-        profit_line_attr='dynamic_profit_line',
-        sell_times_attr='dynamic_profit_sell_times',
         condition_name='条件2',
-        board_break_active=board_break_active
+        board_break_active=board_break_active,
+        get_triggered=lambda c: c.dynamic_profit_triggered,
+        set_triggered=lambda c, v: setattr(c, 'dynamic_profit_triggered', v),
+        get_high_price=lambda c: c.dynamic_profit_high_price,
+        set_high_price=lambda c, v: setattr(c, 'dynamic_profit_high_price', v),
+        get_profit_line=lambda c: c.dynamic_profit_line,
+        set_profit_line=lambda c, v: setattr(c, 'dynamic_profit_line', v),
+        get_sell_times=lambda c: c.dynamic_profit_sell_times,
+        inc_sell_times=lambda c: setattr(c, 'dynamic_profit_sell_times', c.dynamic_profit_sell_times + 1),
     )

@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 板数、炸板动态止盈、断板机制执行器（Layer 2）
+修改：传入 session_registry 到 handle_dynamic_profit_on_board_break。
 """
 from __future__ import annotations
 from datetime import datetime, date
@@ -54,7 +55,7 @@ def execute_board_mechanisms(symbol: str, current_price: float, tick_time: datet
         board_repo.set_board_count_data(symbol, board_count_data)
 
     sell_qty = handle_dynamic_profit_on_board_break(symbol, current_price, available_position,
-                                                    day_data, board_status)
+                                                    day_data, board_status, session_registry)
     if sell_qty:
         place_sell(symbol, current_price - BOARD_BREAK_DYNAMIC_PROFIT_PRICE_OFFSET, sell_qty,
                    "炸板动态止盈卖出", "board_dynamic_profit", {},
