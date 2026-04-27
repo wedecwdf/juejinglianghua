@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime, date
 from unittest.mock import patch
 from domain.day_data import DayData
+from domain.decisions import Decision, DecisionType
 from service.trade_engine import execute_conditions
 
 class TestTradeEngine(unittest.TestCase):
@@ -41,36 +42,69 @@ class TestTradeEngine(unittest.TestCase):
         self.tick_time = datetime(2026, 4, 15, 10, 0, 0)
 
     @patch('use_case.health_check.should_start_trading', return_value=True)
-    @patch('service.trade_engine.execute_next_day_stop_loss', return_value=False)
-    @patch('service.trade_engine.execute_board_mechanisms', return_value=False)
-    @patch('service.trade_engine.execute_pyramid_strategy')
-    @patch('service.trade_engine.execute_condition2_profit', return_value=False)
-    @patch('service.trade_engine.execute_condition9_profit', return_value=False)
-    @patch('service.trade_engine.execute_ma_trading', return_value=False)
-    @patch('service.trade_engine.execute_condition8_grid', return_value=False)
-    @patch('service.trade_engine.execute_pyramid_profit', return_value=False)
-    def test_all_layers_called(self, mock_pyr, mock_grid, mock_ma, mock_c9, mock_c2,
-                               mock_pyramid, mock_board, mock_stop, mock_should):
+    @patch('service.trade_engine.arbiter.best_decision', return_value=None)
+    def test_no_decision_executes_nothing(self, mock_best, mock_should):
+        """仲裁器无决策时，不应调用下单函数"""
         execute_conditions(
             self.symbol, 10.5, self.tick_time, 5000,
             self.day_data, self.day_data.base_price,
             self.ctx
         )
-        self.assertTrue(mock_stop.called)
-        self.assertTrue(mock_board.called)
-        self.assertTrue(mock_pyramid.called)
-        self.assertTrue(mock_c2.called)
+        self.ctx.order_ledger.add_pending_order.assert_not_called()
 
     @patch('use_case.health_check.should_start_trading', return_value=True)
-    @patch('service.trade_engine.execute_next_day_stop_loss', return_value=True)
-    def test_layer1_short_circuit(self, mock_stop, mock_should):
-        with patch('service.trade_engine.execute_board_mechanisms') as mock_board:
-            execute_conditions(
-                self.symbol, 10.5, self.tick_time, 5000,
-                self.day_data, self.day_data.base_price,
-                self.ctx
-            )
-            mock_board.assert_not_called()
+    @patch('service.trade_engine.arbiter.best_decision')
+    @patch('service.trade_engine.place_sell')
+    def test_sell_decision_dispatched(self, mock_sell, mock_best, mock_should):
+        """卖出决策时调用 place_sell"""
+        decision = Decision(
+            condition_name='condition2',
+            decision_type=DecisionType.SELL,
+            symbol=self.symbol,
+            price=10.2,
+            quantity=100,
+            reason='条件2触发'
+        )
+        mock_best.return_value = decision
+        execute_conditions(
+            self.symbol, 10.5, self.tick_time, 5000,
+            self.day_data, self.day_data.base_price,
+            self.ctx
+        )
+        mock_sell.assert_called_once()
+
+    @patch('use_case.health_check.should_start_trading', return_value=True)
+    @patch('service.trade_engine.arbiter.best_decision')
+    @patch('service.trade_engine.place_buy')
+    @patch('service.trade_engine.complete_callback_task')  # 避免 mock 类型问题
+    def test_buy_decision_dispatched(self, mock_complete, mock_buy, mock_best, mock_should):
+        """买入决策时调用 place_buy"""
+        decision = Decision(
+            condition_name='callback_addition',
+            decision_type=DecisionType.BUY,
+            symbol=self.symbol,
+            price=9.8,
+            quantity=200,
+            reason='动态回调加仓'
+        )
+        mock_best.return_value = decision
+        execute_conditions(
+            self.symbol, 10.0, self.tick_time, 5000,
+            self.day_data, self.day_data.base_price,
+            self.ctx
+        )
+        mock_buy.assert_called_once()
+
+    @patch('use_case.health_check.should_start_trading', return_value=True)
+    @patch('service.trade_engine.arbiter.best_decision', return_value=None)
+    def test_all_layers_called_via_arbiter(self, mock_best, mock_should):
+        """通过 mock 验证仲裁器被调用"""
+        execute_conditions(
+            self.symbol, 10.5, self.tick_time, 5000,
+            self.day_data, self.day_data.base_price,
+            self.ctx
+        )
+        mock_best.assert_called_once()
 
 
 if __name__ == "__main__":
