@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 自动撤单服务：定时扫描未成交委托，超时即撤；撤单成功后清除条件8最后一次成交价，允许再次触发
-修改：使用上下文设置重新判定标记。
+所有 print 替换为 logger。
 """
 from __future__ import annotations
+import logging
 import threading
 import time
 from datetime import datetime
@@ -20,6 +21,7 @@ from config.account import ACCOUNT_ID
 from repository.mail_sender import send_email
 from domain.stores import OrderLedger, SessionRegistry
 
+logger = logging.getLogger(__name__)
 _canceling_now: set[str] = set()
 _canceling_lock = threading.Lock()
 
@@ -58,7 +60,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
             if now_ts - created_ts > timeout:
                 account_id = (local_order.get('account_id') if local_order else None) or o.get('account_id') or ACCOUNT_ID
                 if account_id is None or account_id == "":
-                    print(f'【撤单跳过】{o["symbol"]} 订单 {cl_ord_id} 无有效 account_id')
+                    logger.info('【撤单跳过】%s 订单 %s 无有效 account_id', o["symbol"], cl_ord_id)
                     continue
                 if local_order and 'account_id' not in local_order:
                     order_ledger.add_pending_order(cl_ord_id, {**local_order, 'account_id': account_id})
@@ -74,9 +76,12 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                 })
                 with _canceling_lock:
                     _canceling_now.add(cl_ord_id)
-                print(f'【超时识别】{o["symbol"]} 订单 {cl_ord_id} '
-                      f'{"条件8" if is_condition8 else ("条件2" if is_condition2 else ("条件9" if is_condition9 else "普通"))}订单超时: '
-                      f'创建时间{datetime.fromtimestamp(created_ts).strftime("%H:%M:%S")}, 超时{timeout}秒')
+                logger.info(
+                    '【超时识别】%s 订单 %s %s订单超时: 创建时间%s, 超时%d秒',
+                    o["symbol"], cl_ord_id,
+                    "条件8" if is_condition8 else ("条件2" if is_condition2 else ("条件9" if is_condition9 else "普通")),
+                    datetime.fromtimestamp(created_ts).strftime("%H:%M:%S"), timeout
+                )
 
         if not to_cancel:
             return
@@ -84,9 +89,9 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
         for item in to_cancel:
             symbol = item["symbol"]
             if order_ledger.acquire_cancel_lock(symbol):
-                print(f'【撤单保护】{symbol} 获得撤单锁，开始撤单')
+                logger.info('【撤单保护】%s 获得撤单锁，开始撤单', symbol)
             else:
-                print(f'【撤单保护】{symbol} 已在撤单中，跳过本次撤单')
+                logger.info('【撤单保护】%s 已在撤单中，跳过本次撤单', symbol)
                 item["cl_ord_id"] = None
 
         to_cancel = [i for i in to_cancel if i["cl_ord_id"] is not None]
@@ -102,7 +107,10 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
             condition2_count = sum(1 for i in to_cancel if i.get("is_condition2"))
             condition9_count = sum(1 for i in to_cancel if i.get("is_condition9"))
             normal_count = len(to_cancel) - condition8_count - condition2_count - condition9_count
-            print(f'【自动撤单】已撤销 {len(final_cancel)} 笔超时委托 (条件8: {condition8_count}笔, 条件2: {condition2_count}笔, 条件9: {condition9_count}笔, 普通: {normal_count}笔)')
+            logger.info(
+                '【自动撤单】已撤销 %d 笔超时委托 (条件8: %d笔, 条件2: %d笔, 条件9: %d笔, 普通: %d笔)',
+                len(final_cancel), condition8_count, condition2_count, condition9_count, normal_count
+            )
 
             for item in to_cancel:
                 cl_ord_id = item["cl_ord_id"]
@@ -111,21 +119,19 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
 
                 if item.get("is_condition8"):
                     order_ledger.clear_condition8_state(symbol)
-                    print(f'【条件8撤单清理】{symbol} 状态重置完成')
+                    logger.info('【条件8撤单清理】%s 状态重置完成', symbol)
 
-                # 设置重新判定标记到上下文
                 if item.get("is_condition2") or item.get("is_condition9"):
                     if item.get("is_condition2"):
                         ctx2 = session_registry.get_condition2(symbol)
-                        ctx2._recheck_after_cancel = True  # 临时属性
-                        print(f'【条件2撤单标记】{symbol} 设置重新判定标记')
+                        ctx2._recheck_after_cancel = True
+                        logger.info('【条件2撤单标记】%s 设置重新判定标记', symbol)
                     if item.get("is_condition9"):
-                        # 需要 base_price，从 day_data 获取
                         day_data = session_registry.get(symbol)
                         if day_data:
                             ctx9 = session_registry.get_condition9(symbol, day_data.base_price)
                             ctx9._recheck_after_cancel = True
-                            print(f'【条件9撤单标记】{symbol} 设置重新判定标记')
+                            logger.info('【条件9撤单标记】%s 设置重新判定标记', symbol)
 
                 order_ledger.mark_cancelled(symbol)
                 order_ledger.release_cancel_lock(symbol)
@@ -140,7 +146,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                        f'普通订单: {normal_count}笔\n'
                        f'标的: {",".join({i["symbol"] for i in to_cancel})}')
     except Exception as e:
-        print(f'自动撤单异常: {e}')
+        logger.exception('自动撤单异常')
         send_email("自动撤单异常", str(e))
 
 def _loop(order_ledger: OrderLedger, session_registry: SessionRegistry) -> None:
@@ -154,4 +160,5 @@ def start_auto_cancel_thread(order_ledger: OrderLedger, session_registry: Sessio
         return
     t = threading.Thread(target=_loop, args=(order_ledger, session_registry), daemon=True)
     t.start()
-    print(f'【自动撤单服务】启动成功，条件8订单超时{CONDITION8_CANCEL_TIMEOUT}秒，普通订单超时{AUTO_CANCEL_TIMEOUT}秒')
+    logger.info('【自动撤单服务】启动成功，条件8订单超时%d秒，普通订单超时%d秒',
+                CONDITION8_CANCEL_TIMEOUT, AUTO_CANCEL_TIMEOUT)

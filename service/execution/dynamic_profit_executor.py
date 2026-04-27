@@ -2,11 +2,14 @@
 # -*- coding: utf-8 -*-
 """条件2和条件9动态止盈执行器，支持注入配置"""
 from __future__ import annotations
+import logging
 from domain.day_data import DayData
 from domain.stores import SessionRegistry
 from config.strategy.config_objects import Condition2Config, Condition9Config
 from service.condition_service import check_condition2, check_condition9
 from service.order_executor import place_sell, sell_qty_by_percent
+
+logger = logging.getLogger(__name__)
 
 def execute_condition2_profit(symbol: str, current_price: float,
                               available_position: int, day_data: DayData,
@@ -32,6 +35,7 @@ def execute_condition2_profit(symbol: str, current_price: float,
             context9.condition9_triggered = False
             context9.condition9_high_price = -float('inf')
             context9.condition9_profit_line = -float('inf')
+            logger.info('【条件2卖出】%s 数量:%d 价格:%.4f', symbol, qty, current_price - res["sell_price_offset"])
             return True
     return False
 
@@ -55,5 +59,6 @@ def execute_condition9_profit(symbol: str, current_price: float,
                        session_registry=session_registry)
             context.condition9_sell_times += 1
             session_registry.increment_total_sell_times(symbol, 1)
+            logger.info('【条件9卖出】%s 数量:%d 价格:%.4f', symbol, qty, current_price - res["sell_price_offset"])
             return True
     return False

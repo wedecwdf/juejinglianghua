@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 GM 事件薄转发层
-不再持有全局单例，全部从 context.data 获取 TickContext。
+通过 context.tick_ctx 获取 TickContext。
 """
 from __future__ import annotations
+import logging
 from datetime import datetime
 from adapter.context_wrapper import ContextWrapper
 from use_case.handle_tick import handle_tick
@@ -16,14 +17,12 @@ import pytz
 import traceback
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
-
-def _get_tick_ctx(context) -> TickContext:
-    return context.data['tick_context']
+logger = logging.getLogger(__name__)
 
 def on_tick(context: Any, tick: dict[str, Any]) -> None:
     try:
         ctx = ContextWrapper(context)
-        tick_ctx = _get_tick_ctx(context)
+        tick_ctx: TickContext = context.tick_ctx
         current_sleep = tick_ctx.order_ledger.get_sleep_state()
         new_sleep = update_sleep_state(ctx.now(), current_sleep)
         if new_sleep != current_sleep:
@@ -40,24 +39,23 @@ def on_tick(context: Any, tick: dict[str, Any]) -> None:
                                 tick_ctx.callback_store,
                                 tick_ctx.order_ledger)
     except Exception as e:
-        print(f"on_tick 异常: {e}")
-        traceback.print_exc()
+        logger.exception("on_tick 异常")
         send_email("策略异常-on_tick", str(e))
 
 def on_error(context: Any, error_code: int, error_info: str) -> None:
     msg = f"策略错误: 错误代码={error_code}, 错误信息={error_info}"
-    print(msg)
+    logger.error(msg)
     traceback.print_exc()
     send_email("策略错误-on_error", msg)
 
 def on_backtest_finished(context: Any, indicator: dict[str, Any]) -> None:
-    print("回测结束")
-    print(indicator)
+    logger.info("回测结束")
+    logger.info(indicator)
     send_email("回测结束", str(indicator))
 
 def on_order_status(context: Any, order: dict[str, Any]) -> None:
     try:
-        tick_ctx = _get_tick_ctx(context)
+        tick_ctx: TickContext = context.tick_ctx
         status = order.get("status")
         cl_ord_id = order.get("cl_ord_id")
         symbol = order.get("symbol")
@@ -108,6 +106,5 @@ def on_order_status(context: Any, order: dict[str, Any]) -> None:
             tick_ctx.order_ledger.mark_cancelled(symbol)
 
     except Exception as e:
-        print(f"on_order_status 异常: {e}")
-        traceback.print_exc()
+        logger.exception("on_order_status 异常")
         send_email("策略异常-on_order_status", str(e))

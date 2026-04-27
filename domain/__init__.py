@@ -1,8 +1,8 @@
 # domain/__init__.py
 """
 业务实体层，无外部依赖
+移除旧的 states 导入，保留核心实体和上下文导出。
 """
-
 from .day_data import DayData
 from .base_price import (
     CallbackAdditionTask,
@@ -12,9 +12,4 @@ from .base_price import (
 from .board import BoardStatus, BoardBreakStatus, BoardCountData
 from .constants import ConditionType, OrderSide, StockBoard
 
-# 【新增导出】状态子对象（便于外部调试时按业务域查看状态，不破坏原有接口）
-from .states import (
-    MarketState, IndicatorState, Condition2State,
-    Condition4To7State, Condition8State, Condition9State,
-    MiscState, PyramidState, RecheckState, NextDayState,
-)
+# 不再有全局的 MarketState 等，已由条件上下文替代

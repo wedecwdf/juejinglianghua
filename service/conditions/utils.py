@@ -1,10 +1,10 @@
 # service/conditions/utils.py
 # -*- coding: utf-8 -*-
 """
-条件判断公共辅助函数
-修改：_check_dynamic_profit_core 接收配置对象，若未提供则使用全局常量。
+条件判断公共辅助函数，所有 print 替换为模块级 logger。
 """
 from __future__ import annotations
+import logging
 from typing import Optional, Dict, Any, Tuple, TYPE_CHECKING
 
 from config.strategy import (
@@ -25,6 +25,8 @@ from config.strategy import (
 
 if TYPE_CHECKING:
     from config.strategy.config_objects import Condition2Config, Condition9Config
+
+logger = logging.getLogger(__name__)
 
 
 def _sell_qty_by_percent(available_position: int, percent: float) -> int:
@@ -89,20 +91,19 @@ def _calculate_multiple_order_quantity(base_quantity: int, skipped_grids: int,
 # ==================== 重构的动态止盈公共内核 ====================
 
 def _check_dynamic_profit_core(
-    context,  # Condition2Context 或 Condition9Context
+    context,
     increase: float,
     current_price: float,
     base_price: float,
     *,
-    config: Optional[any] = None,          # 接收 Condition2Config 或 Condition9Config
+    config: Optional[any] = None,
     condition_name: str,
     board_break_active: bool = False,
     priority_check_fn: Optional[callable] = None,
-    # 上下文属性 getter/setter 函数
     get_triggered, set_triggered,
     get_high_price, set_high_price,
     get_profit_line, set_profit_line,
-    get_sell_times, inc_sell_times
+    get_sell_times, inc_sell_times,
 ) -> Optional[Dict[str, Any]]:
 
     if board_break_active or config is None or not config.enabled:
@@ -121,9 +122,10 @@ def _check_dynamic_profit_core(
             set_triggered(context, True)
             set_high_price(context, current_price)
             set_profit_line(context, current_price * (1 - config.decline_percent))
-            print(f'{getattr(context, "symbol", "?")}【{condition_name}动态止盈启动已启动】，'
-                  f'初始基准价：{base_price:.4f} 当前涨跌幅：{increase*100:.2f}% '
-                  f'初始止盈线：{get_profit_line(context):.4f}')
+            logger.info(
+                f'【{condition_name}动态止盈启动】基准价：{base_price:.4f} '
+                f'当前涨跌幅：{increase*100:.2f}% 初始止盈线：{get_profit_line(context):.4f}'
+            )
         return None
 
     if not triggered:
@@ -135,7 +137,7 @@ def _check_dynamic_profit_core(
         set_high_price(context, current_price)
         new_profit_line = current_price * (1 - config.decline_percent)
         set_profit_line(context, new_profit_line)
-        print(f'【{condition_name}动态止盈】更新动态止盈线：{new_profit_line:.4f}')
+        logger.info(f'【{condition_name}动态止盈】更新止盈线：{new_profit_line:.4f}')
         return None
 
     # 阶段三：检查跌破止盈线

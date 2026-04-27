@@ -4,6 +4,7 @@
 指标计算，无外部依赖
 """
 from __future__ import annotations
+import logging
 import numpy as np
 import talib as ta
 import pandas as pd
@@ -14,14 +15,12 @@ from config.strategy import (
 )
 from domain.day_data import DayData
 
-def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
-    """
-    计算 MA / CCI / MACD，并填充 day_data 属性
-    返回结果字典，供外部落库或展示
-    """
-    results: Dict[str, Any] = {}
+logger = logging.getLogger(__name__)
 
+def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
+    results: Dict[str, Any] = {}
     close_prices = df["close"].values.astype(float)
+
     for period in MA_PERIODS:
         if len(close_prices) >= period:
             ma_val = ta.SMA(close_prices, timeperiod=period)[-1]
@@ -33,11 +32,12 @@ def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
                     day_data.ma8 = float(ma_val)
                 elif period == 12:
                     day_data.ma12 = float(ma_val)
-        else:
-            results[f"MA{period}"] = None
+            else:
+                results[f"MA{period}"] = None
 
     high_prices = df["high"].values.astype(float)
     low_prices = df["low"].values.astype(float)
+
     if len(close_prices) >= CCI_PERIOD:
         tp = (high_prices + low_prices + close_prices) / 3.0
         ma_tp = ta.SMA(tp, timeperiod=CCI_PERIOD)

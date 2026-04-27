@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 条件8：核心业务逻辑层、算法计算层、数据组装层
-修改：使用 Condition8Context 操作状态，DayData 仅用于 symbol。
+所有 print 替换为 logger。
 """
 from __future__ import annotations
+import logging
 from typing import Dict, Any, Optional
 from domain.day_data import DayData
 from domain.contexts.condition8 import Condition8Context
@@ -19,6 +20,8 @@ from .utils import (
     _calculate_skipped_grids,
     _calculate_multiple_order_quantity,
 )
+
+logger = logging.getLogger(__name__)
 
 def _execute_trading_logic(day_data: DayData, context: Condition8Context, current_price: float,
                            available_position: int, ref_price: float,
@@ -41,10 +44,10 @@ def _handle_sell_logic(symbol: str, context: Condition8Context, current_price: f
                        price_change: float, rise_threshold: float, decline_threshold: float,
                        stock_type: str, type_desc: str) -> Optional[Dict[str, Any]]:
     if available_position <= 0:
-        print(f'【持仓检查】{symbol} 无可用持仓，跳过条件8卖出')
+        logger.info('【持仓检查】%s 无可用持仓，跳过条件8卖出', symbol)
         return None
     if context.condition8_sell_triggered_for_current_ref:
-        print(f'【防重复】{symbol} 当前基准价 {ref_price:.4f} 已触发过卖出挂单，不再重复触发')
+        logger.info('【防重复】%s 当前基准价 %.4f 已触发过卖出挂单，不再重复触发', symbol, ref_price)
         return None
 
     calc_result = _calculate_order_quantity(context, symbol, current_price, ref_price, side="sell")
@@ -53,6 +56,9 @@ def _handle_sell_logic(symbol: str, context: Condition8Context, current_price: f
     actual_multiple = calc_result["actual_multiple"]
     hit_limit = calc_result["hit_limit"]
     skipped_grids = calc_result["skipped_grids"]
+
+    logger.info('【条件8触发-%s】%s 上涨 %.2f%% >= 阈值 %.2f%%，基准价:%.4f 当前价:%.4f',
+                type_desc, symbol, price_change * 100, rise_threshold * 100, ref_price, current_price)
 
     return _assemble_return_data(
         symbol=symbol, context=context, current_price=current_price, ref_price=ref_price,
@@ -68,7 +74,7 @@ def _handle_buy_logic(symbol: str, context: Condition8Context, current_price: fl
                       ref_price: float, price_change: float, rise_threshold: float,
                       decline_threshold: float, stock_type: str, type_desc: str) -> Optional[Dict[str, Any]]:
     if context.condition8_buy_triggered_for_current_ref:
-        print(f'【防重复】{symbol} 当前基准价 {ref_price:.4f} 已触发过买入挂单，不再重复触发')
+        logger.info('【防重复】%s 当前基准价 %.4f 已触发过买入挂单，不再重复触发', symbol, ref_price)
         return None
 
     calc_result = _calculate_order_quantity(context, symbol, current_price, ref_price, side="buy")
@@ -77,6 +83,9 @@ def _handle_buy_logic(symbol: str, context: Condition8Context, current_price: fl
     actual_multiple = calc_result["actual_multiple"]
     hit_limit = calc_result["hit_limit"]
     skipped_grids = calc_result["skipped_grids"]
+
+    logger.info('【条件8触发-%s】%s 下跌 %.2f%% >= 阈值 %.2f%%，基准价:%.4f 当前价:%.4f',
+                type_desc, symbol, abs(price_change) * 100, decline_threshold * 100, ref_price, current_price)
 
     return _assemble_return_data(
         symbol=symbol, context=context, current_price=current_price, ref_price=ref_price,
@@ -113,6 +122,14 @@ def _calculate_order_quantity(context: Condition8Context, symbol: str, current_p
                 final_quantity, actual_multiple, hit_limit = _calculate_multiple_order_quantity(
                     base_quantity, skipped_grids, CONDITION8_MAX_MULTIPLE_LIMIT
                 )
+
+    if CONDITION8_MULTIPLE_ORDER_ENABLED and actual_multiple > 1:
+        limit_msg = "【已达上限】" if hit_limit else ""
+        logger.info(
+            '【倍数委托-%s】%s 上次触发价:%.4f 当前价:%.4f 跳过网格:%d 基础数量:%d 实际倍数:%d 最终数量:%d %s',
+            side, symbol, last_trigger_price_used, current_price, skipped_grids, base_quantity,
+            actual_multiple, final_quantity, limit_msg
+        )
 
     return {
         "final_quantity": final_quantity,

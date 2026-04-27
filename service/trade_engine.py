@@ -1,9 +1,10 @@
 # service/trade_engine.py
 # -*- coding: utf-8 -*-
 """
-交易条件执行引擎 - 依赖注入版，使用 TickContext。
+交易条件执行引擎 - 最终版，使用 logger。
 """
 from __future__ import annotations
+import logging
 from datetime import datetime
 from domain.day_data import DayData
 from domain.board import BoardBreakState
@@ -22,6 +23,8 @@ from service.execution import (
 from service.execution.pyramid_profit_executor import execute_pyramid_profit
 from service.dynamic_profit_recheck_service import execute_post_cancel_recheck
 
+logger = logging.getLogger(__name__)
+
 def execute_conditions(symbol: str, current_price: float,
                        tick_time: datetime, available_position: int,
                        day_data: DayData, base_price: float,
@@ -36,8 +39,9 @@ def execute_conditions(symbol: str, current_price: float,
                 if remaining > 0:
                     minutes, seconds = divmod(int(remaining), 60)
                     hours, minutes = divmod(minutes, 60)
-                    print(f"【等待交易开始】{symbol} {tick_time.strftime('%H:%M:%S')} "
-                          f"距离交易开始{TRADING_START_TIME}还有{hours}小时{minutes}分")
+                    logger.info("【等待交易开始】%s %s 距离交易开始%s还有%d小时%d分",
+                                symbol, tick_time.strftime('%H:%M:%S'),
+                                TRADING_START_TIME, hours, minutes)
         return
 
     total_sell = ctx.session_registry.get_total_sell_times(symbol)
@@ -63,7 +67,7 @@ def execute_conditions(symbol: str, current_price: float,
     context2 = ctx.session_registry.get_condition2(symbol)
     context9 = ctx.session_registry.get_condition9(symbol, base_price)
     if getattr(context2, '_recheck_after_cancel', False) or getattr(context9, '_recheck_after_cancel', False):
-        print(f"【重新判定触发】{symbol} 检测到动态止盈撤单后重新判定标记")
+        logger.info("【重新判定触发】%s 检测到动态止盈撤单后重新判定标记", symbol)
         execute_post_cancel_recheck(symbol, current_price, available_position, day_data, base_price,
                                     board_break_active, ctx.session_registry)
 
@@ -73,7 +77,7 @@ def execute_conditions(symbol: str, current_price: float,
                                      board_break_active, ctx.session_registry, ctx.config.condition2):
             return
     else:
-        print(f"【条件2常规跳过】{symbol} 本次tick已进行撤单后重新判定，跳过常规条件2检查")
+        logger.info("【条件2常规跳过】%s 本次tick已进行撤单后重新判定，跳过常规条件2检查", symbol)
 
     # Layer 5
     if not getattr(context9, '_post_cancel_rechecked', False):
@@ -82,13 +86,13 @@ def execute_conditions(symbol: str, current_price: float,
                                      ctx.session_registry, ctx.config.condition9):
             return
     else:
-        print(f"【条件9常规跳过】{symbol} 本次tick已进行撤单后重新判定，跳过常规条件9检查")
+        logger.info("【条件9常规跳过】%s 本次tick已进行撤单后重新判定，跳过常规条件9检查", symbol)
 
     # Layer 6
     if execute_ma_trading(symbol, current_price, day_data, available_position, tick_time, ctx.session_registry):
         return
 
-    # Layer 7 (条件8暂用全局配置，后续可改为注入)
+    # Layer 7
     if execute_condition8_grid(symbol, current_price, available_position, day_data, base_price,
                                ctx.order_ledger, ctx.session_registry):
         return

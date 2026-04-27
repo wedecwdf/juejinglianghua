@@ -2,8 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 动态回调加仓服务（替代原金字塔加仓服务）
+所有 print 替换为 logger。
 """
 from __future__ import annotations
+import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from domain.base_price import CallbackAdditionTask, calculate_trigger_prices, calculate_callback_buy_quantity
@@ -15,6 +17,8 @@ from config.strategy import (
     MIN_TRADE_UNIT
 )
 from domain.stores import CallbackTaskStore
+
+logger = logging.getLogger(__name__)
 
 VALID_CALLBACK_CONDITIONS = {
     'condition2': CALLBACK_ON_CONDITION2,
@@ -36,7 +40,7 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
     if not should_create_callback_task(condition_type):
         return None
     if prev_close <= 0 or sell_price <= 0 or sell_amount <= 0:
-        print(f"【动态回调加仓】{symbol} 参数无效，跳过任务创建")
+        logger.info("【动态回调加仓】%s 参数无效，跳过任务创建", symbol)
         return None
 
     if store is None:
@@ -45,13 +49,11 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
     old_task_data = store.get_task(symbol)
     if old_task_data and old_task_data.get('is_active'):
         old_task = CallbackAdditionTask.from_dict(old_task_data)
-        print(f"【动态回调加仓-任务覆盖】{symbol} 旧任务被强制废止: "
-              f"旧基准价={old_task.sell_price:.4f}, "
-              f"旧回调阈值={old_task.callback_threshold*100:.2f}%, "
-              f"旧来源={old_task.condition_type}")
-        print(f"【动态回调加仓-任务覆盖】{symbol} 新任务覆盖: "
-              f"新基准价={sell_price:.4f}, "
-              f"新来源={condition_type}")
+        logger.info("【动态回调加仓-任务覆盖】%s 旧任务被强制废止: "
+                     "旧基准价=%.4f, 旧回调阈值=%.2f%%, 旧来源=%s",
+                     symbol, old_task.sell_price, old_task.callback_threshold * 100, old_task.condition_type)
+        logger.info("【动态回调加仓-任务覆盖】%s 新任务覆盖: "
+                     "新基准价=%.4f, 新来源=%s", symbol, sell_price, condition_type)
 
     task = CallbackAdditionTask(
         sell_price=sell_price, prev_close=prev_close,
@@ -60,18 +62,22 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
     )
 
     if task.buy_quantity < MIN_TRADE_UNIT:
-        print(f"【动态回调加仓】{symbol} 折算股数{task.buy_quantity}低于最小单位{MIN_TRADE_UNIT}，任务自动终止。"
-              f"卖出金额={sell_amount:.2f}, 触发价={task.trigger_price:.4f}")
+        logger.info("【动态回调加仓】%s 折算股数%d低于最小单位%d，任务自动终止。"
+                     "卖出金额=%.2f, 触发价=%.4f",
+                     symbol, task.buy_quantity, MIN_TRADE_UNIT, sell_amount, task.trigger_price)
         task.is_active = False
 
     store.set_task(symbol, task.to_dict())
     store.save()
 
     if task.is_active:
-        print(f"【动态回调加仓-任务创建】{symbol} "
-              f"基准价={sell_price:.4f}, 昨日收={prev_close:.4f}, "
-              f"获利幅度R={task.callback_threshold*100:.2f}%, "
-              f"触发价={task.trigger_price:.4f}, 计划买入={task.buy_quantity}股, 来源={condition_type}")
+        logger.info("【动态回调加仓-任务创建】%s "
+                     "基准价=%.4f, 昨日收=%.4f, "
+                     "获利幅度R=%.2f%%, "
+                     "触发价=%.4f, 计划买入=%d股, 来源=%s",
+                     symbol, sell_price, prev_close,
+                     task.callback_threshold * 100,
+                     task.trigger_price, task.buy_quantity, condition_type)
     return task
 
 def check_callback_strategy(symbol: str, current_price: float,
@@ -90,8 +96,10 @@ def check_callback_strategy(symbol: str, current_price: float,
         return None
 
     if task.is_triggered(current_price):
-        print(f"【动态回调加仓-触发】{symbol} 当前价={current_price:.4f} <= 触发价={task.trigger_price:.4f}, "
-              f"获利幅度R={task.callback_threshold*100:.2f}%, 计划买入={task.buy_quantity}股, 来源={task.condition_type}")
+        logger.info("【动态回调加仓-触发】%s 当前价=%.4f <= 触发价=%.4f, "
+                     "获利幅度R=%.2f%%, 计划买入=%d股, 来源=%s",
+                     symbol, current_price, task.trigger_price,
+                     task.callback_threshold * 100, task.buy_quantity, task.condition_type)
         return {
             'quantity': task.buy_quantity,
             'trigger_price': task.trigger_price,
@@ -117,7 +125,7 @@ def complete_callback_task(symbol: str, store: Optional[CallbackTaskStore] = Non
         task.complete()
         store.set_task(symbol, task.to_dict())
         store.save()
-        print(f"【动态回调加仓-完成】{symbol} 任务已完成并标记失效")
+        logger.info("【动态回调加仓-完成】%s 任务已完成并标记失效", symbol)
 
 def remove_callback_task(symbol: str, condition_type: Optional[str] = None,
                          store: Optional[CallbackTaskStore] = None) -> bool:
@@ -132,7 +140,7 @@ def remove_callback_task(symbol: str, condition_type: Optional[str] = None,
     task.is_active = False
     store.set_task(symbol, task.to_dict())
     store.save()
-    print(f"【动态回调加仓-移除】{symbol} 任务已被移除/废止")
+    logger.info("【动态回调加仓-移除】%s 任务已被移除/废止", symbol)
     return True
 
 def get_callback_task(symbol: str, store: Optional[CallbackTaskStore] = None) -> Optional[CallbackAdditionTask]:

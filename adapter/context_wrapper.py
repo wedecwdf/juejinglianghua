@@ -1,15 +1,12 @@
 # adapter/context_wrapper.py
 # -*- coding: utf-8 -*-
-
 """
 统一封装 gm.api，方便 mock
 """
-
 from __future__ import annotations
-
+import logging
 from datetime import datetime
 from typing import Any, List, Dict, Optional
-
 from gm.api import (
     subscribe as gm_subscribe,
     history as gm_history,
@@ -22,14 +19,11 @@ from gm.api import (
     PositionSide_Long
 )
 
+logger = logging.getLogger(__name__)
 
 class ContextWrapper:
-    """薄封装，所有 gm.api 调用都走这里"""
-
     def __init__(self, context: Any) -> None:
         self.ctx = context
-
-    # -------------------- 行情 --------------------
 
     def subscribe(self, symbols: List[str], frequency: str, count: int, wait_group: bool = False) -> None:
         gm_subscribe(symbols=symbols, frequency=frequency, count=count, wait_group=wait_group)
@@ -39,8 +33,6 @@ class ContextWrapper:
         return gm_history(symbol=symbol, frequency=frequency,
                           start_time=start_time, end_time=end_time,
                           fields=fields, adjust=adjust, df=df)
-
-    # -------------------- 账户 --------------------
 
     def get_position(self) -> List[Dict[str, Any]]:
         return gm_get_position()
@@ -63,8 +55,6 @@ class ContextWrapper:
 
     def get_trading_dates(self, start_date: str, end_date: str) -> List[str]:
         return gm_get_trading_dates(exchange="SHSE", start_date=start_date, end_date=end_date)
-
-    # -------------------- 其他 --------------------
 
     def now(self) -> datetime:
         return self.ctx.now

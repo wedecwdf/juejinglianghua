@@ -2,14 +2,16 @@
 # -*- coding: utf-8 -*-
 """
 次日固定止损执行器（Layer 1）
-修改：使用 NextDayAdjustmentContext
 """
 from __future__ import annotations
+import logging
 from typing import Optional
 from domain.day_data import DayData
 from domain.stores import SessionRegistry
 from service.day_adjust_service import check_dynamic_profit_next_day_adjustment
 from service.order_executor import place_sell
+
+logger = logging.getLogger(__name__)
 
 def execute_next_day_stop_loss(symbol: str, current_price: float,
                                available_position: int, day_data: DayData,
@@ -20,5 +22,6 @@ def execute_next_day_stop_loss(symbol: str, current_price: float,
         place_sell(symbol, current_price, sell_qty,
                    "动态止盈次日调整机制止损", "dynamic_profit_next_day_adjustment", {},
                    session_registry=session_registry)
+        logger.info("【次日止损执行】%s 卖出 %d股", symbol, sell_qty)
         return True
     return False

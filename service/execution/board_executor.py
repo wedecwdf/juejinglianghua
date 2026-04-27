@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 板数、炸板动态止盈、断板机制执行器（Layer 2）
-修改：传入 session_registry 到 handle_dynamic_profit_on_board_break。
 """
 from __future__ import annotations
+import logging
 from datetime import datetime, date
 from typing import Optional
 from domain.day_data import DayData
@@ -17,6 +17,8 @@ from service.board_service import (
 )
 from service.order_executor import place_sell
 from config.strategy import BOARD_BREAK_DYNAMIC_PROFIT_PRICE_OFFSET, BOARD_BREAK_PRICE_OFFSET
+
+logger = logging.getLogger(__name__)
 
 def _fix_board_status_datetime(board_status: BoardStatus) -> None:
     time_fields = ['sealed_start_time', 'opened_start_time',

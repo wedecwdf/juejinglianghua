@@ -2,9 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 炸板动态止盈服务（状态机驱动）
-修改：使用 SessionRegistry 获取条件上下文来清理标志。
+所有 print 替换为 logger。
 """
 from __future__ import annotations
+import logging
 from datetime import datetime
 from typing import Optional
 from domain.board import BoardStatus, BoardBreakState
@@ -12,6 +13,8 @@ from domain.day_data import DayData
 from domain.stores import SessionRegistry
 from config.strategy import DYNAMIC_PROFIT_ON_BOARD_BREAK_ENABLED
 from .state_machine import BoardBreakContext, BoardBreakStateFactory
+
+logger = logging.getLogger(__name__)
 
 def handle_dynamic_profit_on_board_break(symbol: str, current_price: float,
                                          available_position: int, day_data: DayData,
@@ -31,7 +34,6 @@ def handle_dynamic_profit_on_board_break(symbol: str, current_price: float,
     handler = BoardBreakStateFactory.create_state(current_state, ctx)
     result = handler.handle()
 
-    # 炸板卖出后，清理条件2、条件9的监控标志（原逻辑）
     if result and result > 0:
         if session_registry:
             ctx2 = session_registry.get_condition2(symbol)

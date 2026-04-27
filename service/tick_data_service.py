@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 """
 Tick数据处理服务
-修改：print_tick_snapshot 可接受 session_registry 来获取条件8参考价及阈值。
 """
 from __future__ import annotations
+import logging
 from datetime import date
 from typing import Dict, Any, Optional
 from domain.day_data import DayData
@@ -18,9 +18,11 @@ from config.strategy import (
     HIGH_FREQUENCY_STOCKS, LOW_FREQUENCY_STOCKS
 )
 
+logger = logging.getLogger(__name__)
+
 def update_day_data(symbol: str, tick: Dict[str, Any], tick_date: date,
                     session_registry: SessionRegistry) -> DayData:
-    """更新或创建 DayData（纯行情），不涉及条件状态"""
+    """更新或创建 DayData（纯行情）"""
     day_data = session_registry.get(symbol)
     if day_data is None or not day_data.initialized or day_data.date != tick_date:
         base_price = tick["price"]
@@ -31,8 +33,8 @@ def update_day_data(symbol: str, tick: Dict[str, Any], tick_date: date,
         day_data.low = tick["price"]
         day_data.close = tick["price"]
         day_data.volume = tick["cum_volume"]
-        print(f"\n===== {symbol} 新交易日开始 [{tick_date}] =====")
-        print(f"{symbol} 基准价: {base_price:.4f}")
+        logger.info("===== %s 新交易日开始 [%s] =====", symbol, tick_date)
+        logger.info("%s 基准价: %.4f", symbol, base_price)
         session_registry.set(symbol, day_data)
         session_registry.reset_total_buy(symbol)
     else:
@@ -49,7 +51,6 @@ def refresh_indicators(symbol: str, day_data: DayData) -> None:
 
 def print_tick_snapshot(symbol: str, current_price: float, day_data: DayData,
                         session_registry: Optional[SessionRegistry] = None) -> None:
-    # 获取条件8参考价（上下文中）
     cond8_ref = day_data.base_price
     if session_registry:
         ctx8 = session_registry.get_condition8(symbol, day_data.base_price)
@@ -67,7 +68,8 @@ def print_tick_snapshot(symbol: str, current_price: float, day_data: DayData,
         rise_thr = CONDITION8_LOW_FREQ_RISE_PERCENT
         decline_thr = CONDITION8_LOW_FREQ_DECLINE_PERCENT
 
-    print(f"[{symbol}] 条件8基准价={cond8_ref:.2f} 当前价={current_price:.2f} "
-          f"条件8上涨阈值={rise_thr*100:.2f}% 条件8下跌阈值={decline_thr*100:.2f}% "
-          f"当前涨跌幅={increase*100:+.2f}%")
-    print(f"【固定基准价】{symbol} base_price={day_data.base_price:.2f}")
+    logger.info(
+        "[%s] 条件8基准价=%.2f 当前价=%.2f 条件8上涨阈值=%.2f%% 条件8下跌阈值=%.2f%% 当前涨跌幅=%+.2f%%",
+        symbol, cond8_ref, current_price, rise_thr * 100, decline_thr * 100, increase * 100
+    )
+    logger.info("【固定基准价】%s base_price=%.2f", symbol, day_data.base_price)

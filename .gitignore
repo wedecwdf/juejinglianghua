@@ -2,15 +2,27 @@
 __pycache__/
 *.py[cod]
 *.so
+.Python
+*.egg-info/
+dist/
+build/
 
-# 环境变量
-.env
-
-# 持久化数据
-json_storage/
-log/
-account_data/
+# 虚拟环境
+talib_env/
+venv/
+env/
 
 # IDE
 .idea/
 .vscode/
+*.swp
+*.swo
+
+# 数据文件
+account_data
+json_storage
+log
+*.log
+
+# 环境变量（包含 token）
+.env

@@ -2,11 +2,11 @@
 # -*- coding: utf-8 -*-
 """
 订单执行服务
-修改：不再直接修改 DayData 的条件状态，改为通过上下文操作。
 """
 from __future__ import annotations
+import logging
 from datetime import datetime
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import pytz
 from repository.gm_data_source import place_order
 from repository.mail_sender import send_email
@@ -21,6 +21,7 @@ from config.strategy import (
 )
 from domain.stores import OrderLedger, SessionRegistry
 
+logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
 def place_sell(symbol: str, price: float, quantity: int,
@@ -72,21 +73,21 @@ def place_sell(symbol: str, price: float, quantity: int,
             ctx8.condition8_last_trade_price = price
             ctx8.condition8_sell_triggered_for_current_ref = True
             current_ref = trigger_data.get('current_ref_price', ctx8.condition8_reference_price)
-            print(f"【条件8挂单】{symbol} 卖出委托 {price:.4f} 已记录，基准价 {current_ref:.4f} 下卖出挂单状态已标记")
+            logger.info("【条件8挂单】%s 卖出委托 %.4f 已记录，基准价 %.4f 下卖出挂单状态已标记", symbol, price, current_ref)
 
         if trigger_data and trigger_data.get("is_multiple_order"):
             mult_info = trigger_data.get("multiple_order_info", {})
-            print(f"【条件8倍数委托详情】{symbol} 基础数量:{mult_info.get('base_quantity')} "
-                  f"实际倍数:{mult_info.get('actual_multiple')} 跳过网格:{mult_info.get('skipped_grids')} "
-                  f"网格间隔:{mult_info.get('grid_interval_percent', 0)*100:.2f}%")
+            logger.info("【条件8倍数委托详情】%s 基础数量:%d 实际倍数:%d 跳过网格:%d 网格间隔:%.2f%%",
+                        symbol, mult_info.get('base_quantity'), mult_info.get('actual_multiple'),
+                        mult_info.get('skipped_grids'), mult_info.get('grid_interval_percent', 0) * 100)
         if trigger_data and trigger_data.get("threshold_info"):
             thr_info = trigger_data.get("threshold_info", {})
             type_desc = "高频" if thr_info.get('stock_type') == 'high' else ("低频" if thr_info.get('stock_type') == 'low' else "默认")
-            print(f"【条件8独立阈值详情】{symbol} 类型:{type_desc} "
-                  f"上涨阈值:{thr_info.get('rise_threshold_used', 0)*100:.2f}% "
-                  f"下跌阈值:{thr_info.get('decline_threshold_used', 0)*100:.2f}%")
+            logger.info("【条件8独立阈值详情】%s 类型:%s 上涨阈值:%.2f%% 下跌阈值:%.2f%%",
+                        symbol, type_desc, thr_info.get('rise_threshold_used', 0) * 100,
+                        thr_info.get('decline_threshold_used', 0) * 100)
 
-    print(f"【交易执行】{symbol} 卖出：{quantity}股 @ {price:.4f}，原因：{reason}")
+    logger.info("【交易执行】%s 卖出：%d股 @ %.4f，原因：%s", symbol, quantity, price, reason)
 
 def place_buy(symbol: str, price: float, quantity: int,
               reason: str, condition_type: str, trigger_data: Dict[str, Any],
@@ -137,21 +138,21 @@ def place_buy(symbol: str, price: float, quantity: int,
             ctx8.condition8_last_trade_price = price
             ctx8.condition8_buy_triggered_for_current_ref = True
             current_ref = trigger_data.get('current_ref_price', ctx8.condition8_reference_price)
-            print(f"【条件8挂单】{symbol} 买入委托 {price:.4f} 已记录，基准价 {current_ref:.4f} 下买入挂单状态已标记")
+            logger.info("【条件8挂单】%s 买入委托 %.4f 已记录，基准价 %.4f 下买入挂单状态已标记", symbol, price, current_ref)
 
         if trigger_data and trigger_data.get("is_multiple_order"):
             mult_info = trigger_data.get("multiple_order_info", {})
-            print(f"【条件8倍数委托详情】{symbol} 基础数量:{mult_info.get('base_quantity')} "
-                  f"实际倍数:{mult_info.get('actual_multiple')} 跳过网格:{mult_info.get('skipped_grids')} "
-                  f"网格间隔:{mult_info.get('grid_interval_percent', 0)*100:.2f}%")
+            logger.info("【条件8倍数委托详情】%s 基础数量:%d 实际倍数:%d 跳过网格:%d 网格间隔:%.2f%%",
+                        symbol, mult_info.get('base_quantity'), mult_info.get('actual_multiple'),
+                        mult_info.get('skipped_grids'), mult_info.get('grid_interval_percent', 0) * 100)
         if trigger_data and trigger_data.get("threshold_info"):
             thr_info = trigger_data.get("threshold_info", {})
             type_desc = "高频" if thr_info.get('stock_type') == 'high' else ("低频" if thr_info.get('stock_type') == 'low' else "默认")
-            print(f"【条件8独立阈值详情】{symbol} 类型:{type_desc} "
-                  f"上涨阈值:{thr_info.get('rise_threshold_used', 0)*100:.2f}% "
-                  f"下跌阈值:{thr_info.get('decline_threshold_used', 0)*100:.2f}%")
+            logger.info("【条件8独立阈值详情】%s 类型:%s 上涨阈值:%.2f%% 下跌阈值:%.2f%%",
+                        symbol, type_desc, thr_info.get('rise_threshold_used', 0) * 100,
+                        thr_info.get('decline_threshold_used', 0) * 100)
 
-    print(f"【交易执行】{symbol} 买入：{quantity}股 @ {price:.4f}，原因：{reason}")
+    logger.info("【交易执行】%s 买入：%d股 @ %.4f，原因：%s", symbol, quantity, price, reason)
 
 def sell_qty_by_percent(available: int, percent: float) -> int:
     qty = int(available * percent)

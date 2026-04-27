@@ -4,6 +4,7 @@
 次日固定止损机制，使用 NextDayAdjustmentContext
 """
 from __future__ import annotations
+import logging
 from typing import Any, Dict, Optional
 from domain.contexts.next_day import NextDayAdjustmentContext
 from config.strategy import (
@@ -14,6 +15,8 @@ from config.strategy import (
     CONDITION2_DYNAMIC_LINE_THRESHOLD, CONDITION2_SELL_PERCENT_HIGH, CONDITION2_SELL_PERCENT_LOW,
     CONDITION9_DYNAMIC_LINE_THRESHOLD, CONDITION9_SELL_PERCENT_HIGH, CONDITION9_SELL_PERCENT_LOW
 )
+
+logger = logging.getLogger(__name__)
 
 def initialize_next_day_adjustment(adj_ctx: NextDayAdjustmentContext, prev_close_price: float) -> None:
     if not DYNAMIC_PROFIT_NEXT_DAY_ADJUSTMENT_ENABLED:
@@ -44,13 +47,11 @@ def initialize_next_day_adjustment(adj_ctx: NextDayAdjustmentContext, prev_close
     days_count = data.get("days_count", 0) + 1
     if days_count > DYNAMIC_PROFIT_NEXT_DAY_MAX_DAYS:
         data["enabled"] = False
+        logger.info("【次日调整机制】达到最大延续天数%d，机制终止", DYNAMIC_PROFIT_NEXT_DAY_MAX_DAYS)
     else:
-        data.update({
-            "enabled": True,
-            "stop_loss_price": stop_loss_price,
-            "sell_ratio": sell_ratio,
-            "days_count": days_count
-        })
+        data.update({"enabled": True, "stop_loss_price": stop_loss_price, "sell_ratio": sell_ratio, "days_count": days_count})
+        logger.info("【次日调整机制】初始化完成 止损价:%.4f 卖出比例:%.1f%% 天数:%d/%d",
+                    stop_loss_price, sell_ratio * 100, days_count, DYNAMIC_PROFIT_NEXT_DAY_MAX_DAYS)
 
 def check_dynamic_profit_next_day_adjustment(adj_ctx: NextDayAdjustmentContext,
                                             current_price: float,
@@ -68,8 +69,10 @@ def check_dynamic_profit_next_day_adjustment(adj_ctx: NextDayAdjustmentContext,
     sell_qty = int(available_position * sell_ratio)
     sell_qty = (sell_qty // 100) * 100
     if sell_qty <= 0:
+        logger.info("【次日调整机制】无可用持仓，跳过卖出")
         return None
     data["enabled"] = False
+    logger.info("【次日调整机制触发】价格跌破固定止损线，卖出%d股", sell_qty)
     return sell_qty
 
 def update_dynamic_profit_high_lines(adj_ctx: NextDayAdjustmentContext, condition_type: str,
@@ -94,3 +97,4 @@ def disable_next_day_adjustment_if_dynamic_profit_triggered(adj_ctx: NextDayAdju
     data = adj_ctx.data
     if data.get("enabled", False):
         data["enabled"] = False
+        logger.info("【次日调整机制】动态止盈%s再次触发，固定止损机制失效", condition_type)

@@ -1,13 +1,17 @@
 # service/conditions/cond9.py
 # -*- coding: utf-8 -*-
 """
-条件9：第一区间动态止盈，接收配置对象。
+条件9：第一区间动态止盈
 """
 from __future__ import annotations
+import logging
 from typing import Optional, Dict, Any
 from domain.contexts.condition9 import Condition9Context
 from config.strategy.config_objects import Condition9Config, load_strategy_config
 from .utils import _check_dynamic_profit_core
+
+logger = logging.getLogger(__name__)
+
 
 def check_condition9(
     context: Condition9Context,
@@ -20,6 +24,7 @@ def check_condition9(
 ) -> Optional[Dict[str, Any]]:
     if config is None:
         config = load_strategy_config().condition9
+
     # 区间停止检查
     if context.condition9_stopped:
         return None
@@ -28,7 +33,7 @@ def check_condition9(
     if current_price > upper_band:
         context.condition9_stopped = True
         context.condition9_triggered = False
-        print(f'【条件9停止监测】价格突破区间上限，停止监测')
+        logger.info('【条件9停止监测】价格突破区间上限，停止监测')
         return None
     if not (lower_band <= current_price <= upper_band):
         return None
@@ -39,7 +44,7 @@ def check_condition9(
                 context.condition9_triggered = False
                 context.condition9_high_price = -float('inf')
                 context.condition9_profit_line = -float('inf')
-                print(f"【优先级覆盖】条件二激活，条件九状态被清理")
+                logger.info("【优先级覆盖】条件二激活，条件九状态被清理")
             return True
         return False
 

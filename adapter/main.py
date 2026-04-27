@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-重构后：依赖注入 + TickContext，消除模块级全局单例。
+重构后：依赖注入 + TickContext，使用 context 属性存储。
 """
 from __future__ import annotations
 import os
@@ -200,7 +200,7 @@ def real_init(context):
     print_strategy_init_banner()
     print("开始加载持久化数据...")
 
-    # 加载策略配置（可通过环境变量覆盖）
+    # 加载策略配置
     strategy_config = load_strategy_config()
 
     # 创建仓库实例
@@ -213,7 +213,7 @@ def real_init(context):
     order_ledger = OrderLedger()
     order_ledger.load()
 
-    # 组装 TickContext 并保存到 context.data，供 on_tick 使用
+    # 组装 TickContext 并挂载到 context 对象上
     tick_ctx = TickContext(
         session_registry=session_registry,
         board_repo=board_repo,
@@ -221,7 +221,8 @@ def real_init(context):
         order_ledger=order_ledger,
         config=strategy_config,
     )
-    context.data['tick_context'] = tick_ctx
+    # 直接作为属性存储（掘金支持 context 挂载自定义属性）
+    context.tick_ctx = tick_ctx
 
     symbols = build_tracking_symbols()
     if not symbols:
@@ -271,7 +272,7 @@ def real_init(context):
             json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         print(f"账户数据已导出到: {export_path}")
 
-    # 收盘线程，捕获 tick_ctx 供调用
+    # 收盘线程
     def _daily_close():
         while True:
             now = datetime.now(beijing_tz)

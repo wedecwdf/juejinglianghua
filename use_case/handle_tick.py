@@ -3,9 +3,10 @@
 # -*- coding: utf-8 -*-
 """
 单 tick 完整流程 - 依赖注入版，使用 TickContext。
-不再直接使用 DayData 的条件字段。
+所有 print 替换为 logger。
 """
 from __future__ import annotations
+import logging
 from datetime import date, datetime
 from typing import Dict, Any
 import pytz
@@ -16,6 +17,7 @@ from use_case.health_check import is_in_trading_hours
 from domain.contexts.tick_context import TickContext
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
+logger = logging.getLogger(__name__)
 
 def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     symbol = tick["symbol"]
@@ -26,7 +28,7 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     current_price = tick["price"]
 
     if ctx.order_ledger.is_cancelling(symbol):
-        print(f"【撤单保护】{symbol} 正在撤单中，跳过本次 tick 处理")
+        logger.info("【撤单保护】%s 正在撤单中，跳过本次 tick 处理", symbol)
         return
 
     # 更新 DayData（仅行情）
@@ -42,7 +44,7 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
 
     # 撤单后重新判断标记
     if ctx.order_ledger.pop_cancelled(symbol):
-        print(f"【撤单再判断】{symbol} 上次撤单已清除，立即重新判断条件")
+        logger.info("【撤单再判断】%s 上次撤单已清除，立即重新判断条件", symbol)
 
     # 指标刷新
     refresh_indicators(symbol, day_data)

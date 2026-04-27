@@ -1,13 +1,17 @@
 # service/conditions/cond2.py
 # -*- coding: utf-8 -*-
 """
-条件2：动态止盈，接收配置对象实现依赖注入。
+条件2：动态止盈
 """
 from __future__ import annotations
+import logging
 from typing import Optional, Dict, Any
 from domain.contexts.condition2 import Condition2Context
 from config.strategy.config_objects import Condition2Config, load_strategy_config
 from .utils import _check_dynamic_profit_core
+
+logger = logging.getLogger(__name__)
+
 
 def check_condition2(
     context: Condition2Context,
@@ -18,7 +22,7 @@ def check_condition2(
     config: Optional[Condition2Config] = None,
 ) -> Optional[Dict[str, Any]]:
     if config is None:
-        config = load_strategy_config().condition2  # 默认使用全局配置
+        config = load_strategy_config().condition2
     return _check_dynamic_profit_core(
         context=context,
         increase=increase,
