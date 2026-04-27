@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 自动撤单服务：定时扫描未成交委托，超时即撤；撤单成功后清除条件8最后一次成交价，允许再次触发
-所有 print 替换为 logger。
 """
 from __future__ import annotations
 import logging
@@ -124,13 +123,13 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                 if item.get("is_condition2") or item.get("is_condition9"):
                     if item.get("is_condition2"):
                         ctx2 = session_registry.get_condition2(symbol)
-                        ctx2._recheck_after_cancel = True
+                        ctx2.recheck_after_cancel = True
                         logger.info('【条件2撤单标记】%s 设置重新判定标记', symbol)
                     if item.get("is_condition9"):
                         day_data = session_registry.get(symbol)
                         if day_data:
                             ctx9 = session_registry.get_condition9(symbol, day_data.base_price)
-                            ctx9._recheck_after_cancel = True
+                            ctx9.recheck_after_cancel = True
                             logger.info('【条件9撤单标记】%s 设置重新判定标记', symbol)
 
                 order_ledger.mark_cancelled(symbol)

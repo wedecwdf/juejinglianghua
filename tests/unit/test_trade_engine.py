@@ -8,34 +8,39 @@ import unittest
 from datetime import datetime, date
 from unittest.mock import patch
 from domain.day_data import DayData
-from domain.contexts.tick_context import TickContext
 from service.trade_engine import execute_conditions
 
 class TestTradeEngine(unittest.TestCase):
     def setUp(self):
-        # 创建基础 mock，不使用 spec，因为我们需要动态添加属性
+        # 模拟 TickContext
         mock_ctx = MagicMock()
-        # 模拟 session_registry 的方法
         mock_ctx.session_registry.get_total_sell_times.return_value = 0
-        # 模拟其他仓库对象（不需要实际功能，只需让执行器不报错）
         mock_ctx.board_repo = MagicMock()
         mock_ctx.callback_store = MagicMock()
         mock_ctx.order_ledger = MagicMock()
         mock_ctx.config = MagicMock()
-        # 模拟健康检查相关属性（通过 config 或直接 mock）
-        # 为了确保 board_break_active 的判断，设置 get_board_status 返回的对象
+        # 让 board_status 返回安全值
         mock_board_status = MagicMock()
-        mock_board_status.get_break_state.return_value = MagicMock()
+        mock_board_status.get_break_state.return_value = None
         mock_ctx.board_repo.get_board_status.return_value = mock_board_status
-
+        # 设置上下文，使其不会进入重判定分支
+        mock_ctx.session_registry.get_condition2.return_value = MagicMock(
+            recheck_after_cancel=False, post_cancel_rechecked=False,
+            dynamic_profit_triggered=False
+        )
+        mock_ctx.session_registry.get_condition9.return_value = MagicMock(
+            recheck_after_cancel=False, post_cancel_rechecked=False,
+            condition9_triggered=False
+        )
         self.ctx = mock_ctx
+
         self.symbol = "SZSE.002842"
         self.day_data = DayData(self.symbol, 10.0, date.today())
         self.day_data.initialized = True
         self.day_data.ma4 = 9.8
         self.tick_time = datetime(2026, 4, 15, 10, 0, 0)
 
-    @patch('service.trade_engine.should_start_trading', return_value=True)
+    @patch('use_case.health_check.should_start_trading', return_value=True)
     @patch('service.trade_engine.execute_next_day_stop_loss', return_value=False)
     @patch('service.trade_engine.execute_board_mechanisms', return_value=False)
     @patch('service.trade_engine.execute_pyramid_strategy')
@@ -56,7 +61,7 @@ class TestTradeEngine(unittest.TestCase):
         self.assertTrue(mock_pyramid.called)
         self.assertTrue(mock_c2.called)
 
-    @patch('service.trade_engine.should_start_trading', return_value=True)
+    @patch('use_case.health_check.should_start_trading', return_value=True)
     @patch('service.trade_engine.execute_next_day_stop_loss', return_value=True)
     def test_layer1_short_circuit(self, mock_stop, mock_should):
         with patch('service.trade_engine.execute_board_mechanisms') as mock_board:

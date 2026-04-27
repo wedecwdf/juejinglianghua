@@ -1,10 +1,10 @@
 # domain/contexts/condition2.py
 # -*- coding: utf-8 -*-
 """
-条件2动态止盈运行时上下文，完全独立于 DayData。
+条件2动态止盈运行时上下文
 """
 from __future__ import annotations
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 from .base import BaseConditionContext
 
 
@@ -15,6 +15,8 @@ class Condition2Context(BaseConditionContext):
         'dynamic_profit_line',
         'dynamic_profit_sell_times',
         'condition2_triggered_and_sold',
+        'recheck_after_cancel',
+        'post_cancel_rechecked',
     )
 
     def __init__(self):
@@ -23,6 +25,8 @@ class Condition2Context(BaseConditionContext):
         self.dynamic_profit_line: float = -float('inf')
         self.dynamic_profit_sell_times: int = 0
         self.condition2_triggered_and_sold: bool = False
+        self.recheck_after_cancel: bool = False
+        self.post_cancel_rechecked: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {slot: getattr(self, slot) for slot in self.__slots__}

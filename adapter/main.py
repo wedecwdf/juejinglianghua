@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-重构后：依赖注入 + TickContext，使用 context 属性存储。
+最终版：通过 repository.stores 创建具体仓库，注入 TickContext。
 """
 from __future__ import annotations
 import os
@@ -96,13 +96,20 @@ from use_case.health_check import is_trading_day, is_in_trading_hours
 from use_case.init_assets import build_tracking_symbols
 from repository.gm_data_source import load_history_data, get_cash, get_position
 from domain.day_data import DayData
-from domain.stores import SessionRegistry, BoardStateRepository, CallbackTaskStore, OrderLedger
 from domain.contexts.tick_context import TickContext
 from config.strategy.config_objects import load_strategy_config
 from service.indicator_service import calculate_indicators
 from repository.mail_sender import send_email
 from service.order_cancel_service import start_auto_cancel_thread
 from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
+
+# 改为从 repository.stores 导入具体实现
+from repository.stores import (
+    SessionRegistryImpl,
+    OrderLedgerImpl,
+    BoardStateRepositoryImpl,
+    CallbackTaskStoreImpl,
+)
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
@@ -203,14 +210,14 @@ def real_init(context):
     # 加载策略配置
     strategy_config = load_strategy_config()
 
-    # 创建仓库实例
-    session_registry = SessionRegistry()
+    # 创建具体仓库实例
+    session_registry = SessionRegistryImpl()
     session_registry.load()
-    board_repo = BoardStateRepository()
+    board_repo = BoardStateRepositoryImpl()
     board_repo.load()
-    callback_store = CallbackTaskStore()
+    callback_store = CallbackTaskStoreImpl()
     callback_store.load()
-    order_ledger = OrderLedger()
+    order_ledger = OrderLedgerImpl()
     order_ledger.load()
 
     # 组装 TickContext 并挂载到 context 对象上
@@ -221,7 +228,6 @@ def real_init(context):
         order_ledger=order_ledger,
         config=strategy_config,
     )
-    # 直接作为属性存储（掘金支持 context 挂载自定义属性）
     context.tick_ctx = tick_ctx
 
     symbols = build_tracking_symbols()

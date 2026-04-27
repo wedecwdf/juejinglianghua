@@ -1,23 +1,19 @@
 # service/conditions/cond8.py
 # -*- coding: utf-8 -*-
 """
-条件8：动态基准价交易（主入口）
-修改：使用 Condition8Context 和 DayData 替代纯 DayData 访问。
+条件8：动态基准价交易（主入口），order_ledger 必须由调用者传入。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
 from domain.day_data import DayData
 from domain.contexts.condition8 import Condition8Context
-from domain.stores import OrderLedger
+from domain.stores.base import AbstractOrderLedger
 from .cond8_validation import _check_system_state, _validate_business_rules, _fetch_data
 from .cond8_execution import _execute_trading_logic
 
 def check_condition8(day_data: DayData, context: Condition8Context, current_price: float,
                      available_position: int,
-                     order_ledger: Optional[OrderLedger] = None) -> Optional[Dict[str, Any]]:
-    if order_ledger is None:
-        order_ledger = OrderLedger()
-
+                     order_ledger: AbstractOrderLedger) -> Optional[Dict[str, Any]]:
     symbol = day_data.symbol
     if not _check_system_state(order_ledger, symbol, context, current_price):
         return None

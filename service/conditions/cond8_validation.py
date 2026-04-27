@@ -1,15 +1,14 @@
 # service/conditions/cond8_validation.py
 # -*- coding: utf-8 -*-
 """
-条件8：系统状态检查层、业务规则校验层、数据获取层
-所有 print 替换为 logger。
+条件8：系统状态检查层、业务规则校验层、数据获取层，order_ledger 必须注入。
 """
 from __future__ import annotations
 import logging
 import time
 from typing import Dict, Any
 from domain.contexts.condition8 import Condition8Context
-from domain.stores import OrderLedger
+from domain.stores.base import AbstractOrderLedger
 from config.strategy import (
     CONDITION8_ENABLED,
     MAX_CONDITION8_TRADE_TIMES,
@@ -22,7 +21,7 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-def _check_system_state(order_ledger: OrderLedger, symbol: str, context: Condition8Context,
+def _check_system_state(order_ledger: AbstractOrderLedger, symbol: str, context: Condition8Context,
                         current_price: float) -> bool:
     if not CONDITION8_ENABLED:
         return False
@@ -69,7 +68,7 @@ def _validate_business_rules(context: Condition8Context, base_price: float,
                     return False
     return True
 
-def _fetch_data(order_ledger: OrderLedger, symbol: str, context: Condition8Context,
+def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str, context: Condition8Context,
                 current_price: float) -> Dict[str, Any]:
     if order_ledger.pop_cancelled(symbol):
         ref_price = context.condition8_reference_price

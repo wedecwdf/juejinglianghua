@@ -2,8 +2,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-单 tick 完整流程 - 依赖注入版，使用 TickContext。
-所有 print 替换为 logger。
+单 tick 完整流程 - 依赖注入版，使用正式上下文属性。
 """
 from __future__ import annotations
 import logging
@@ -37,10 +36,10 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     # 防重复标记清理
     context2 = ctx.session_registry.get_condition2(symbol)
     context9 = ctx.session_registry.get_condition9(symbol, day_data.base_price)
-    if getattr(context2, '_post_cancel_rechecked', False):
-        context2._post_cancel_rechecked = False
-    if getattr(context9, '_post_cancel_rechecked', False):
-        context9._post_cancel_rechecked = False
+    if context2.post_cancel_rechecked:
+        context2.post_cancel_rechecked = False
+    if context9.post_cancel_rechecked:
+        context9.post_cancel_rechecked = False
 
     # 撤单后重新判断标记
     if ctx.order_ledger.pop_cancelled(symbol):

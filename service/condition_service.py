@@ -1,7 +1,7 @@
 # service/condition_service.py
 # -*- coding: utf-8 -*-
 """
-所有编号条件检查入口，提供与旧版兼容的包装。
+所有编号条件检查入口，不再使用默认仓库实例。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
@@ -11,7 +11,7 @@ from domain.contexts.condition8 import Condition8Context
 from domain.contexts.condition9 import Condition9Context
 from domain.contexts.condition4_7 import Condition4To7Context
 from domain.contexts.pyramid import PyramidContext
-from domain.stores import OrderLedger, SessionRegistry
+from domain.stores.base import AbstractOrderLedger
 from config.strategy.config_objects import Condition2Config, Condition9Config
 
 from service.conditions import (
@@ -48,7 +48,7 @@ def check_condition7(day_data: DayData, context: Condition4To7Context,
 
 def check_condition8(day_data: DayData, context: Condition8Context, current_price: float,
                      available_position: int,
-                     order_ledger: Optional[OrderLedger] = None) -> Optional[Dict[str, Any]]:
+                     order_ledger: AbstractOrderLedger) -> Optional[Dict[str, Any]]:
     return _cond8(day_data, context, current_price, available_position, order_ledger)
 
 def check_condition9(context: Condition9Context, increase: float, current_price: float,

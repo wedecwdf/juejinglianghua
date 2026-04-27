@@ -1,14 +1,13 @@
 # service/pyramid_service.py
 # -*- coding: utf-8 -*-
 """
-动态回调加仓服务（替代原金字塔加仓服务）
-所有 print 替换为 logger。
+动态回调加仓服务，store 必须由调用方注入。
 """
 from __future__ import annotations
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
-from domain.base_price import CallbackAdditionTask, calculate_trigger_prices, calculate_callback_buy_quantity
+from domain.base_price import CallbackAdditionTask
 from config.strategy import (
     CALLBACK_ADDITION_ENABLED,
     CALLBACK_ON_CONDITION2,
@@ -16,7 +15,7 @@ from config.strategy import (
     CALLBACK_ON_CONDITION8,
     MIN_TRADE_UNIT
 )
-from domain.stores import CallbackTaskStore
+from domain.stores.base import AbstractCallbackTaskStore
 
 logger = logging.getLogger(__name__)
 
@@ -36,15 +35,12 @@ def should_create_callback_task(condition_type: str) -> bool:
 
 def add_callback_task(symbol: str, sell_price: float, prev_close: float,
                       sell_amount: float, sell_quantity: int, condition_type: str,
-                      store: Optional[CallbackTaskStore] = None) -> Optional[CallbackAdditionTask]:
+                      store: AbstractCallbackTaskStore) -> Optional[CallbackAdditionTask]:
     if not should_create_callback_task(condition_type):
         return None
     if prev_close <= 0 or sell_price <= 0 or sell_amount <= 0:
         logger.info("【动态回调加仓】%s 参数无效，跳过任务创建", symbol)
         return None
-
-    if store is None:
-        store = CallbackTaskStore()
 
     old_task_data = store.get_task(symbol)
     if old_task_data and old_task_data.get('is_active'):
@@ -81,11 +77,9 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
     return task
 
 def check_callback_strategy(symbol: str, current_price: float,
-                            store: Optional[CallbackTaskStore] = None) -> Optional[Dict[str, Any]]:
+                            store: AbstractCallbackTaskStore) -> Optional[Dict[str, Any]]:
     if not CALLBACK_ADDITION_ENABLED:
         return None
-    if store is None:
-        store = CallbackTaskStore()
 
     task_data = store.get_task(symbol)
     if not task_data:
@@ -116,9 +110,7 @@ def check_callback_strategy(symbol: str, current_price: float,
         }
     return None
 
-def complete_callback_task(symbol: str, store: Optional[CallbackTaskStore] = None) -> None:
-    if store is None:
-        store = CallbackTaskStore()
+def complete_callback_task(symbol: str, store: AbstractCallbackTaskStore) -> None:
     task_data = store.get_task(symbol)
     if task_data:
         task = CallbackAdditionTask.from_dict(task_data)
@@ -128,9 +120,9 @@ def complete_callback_task(symbol: str, store: Optional[CallbackTaskStore] = Non
         logger.info("【动态回调加仓-完成】%s 任务已完成并标记失效", symbol)
 
 def remove_callback_task(symbol: str, condition_type: Optional[str] = None,
-                         store: Optional[CallbackTaskStore] = None) -> bool:
+                         store: AbstractCallbackTaskStore = None) -> bool:
     if store is None:
-        store = CallbackTaskStore()
+        return False
     task_data = store.get_task(symbol)
     if not task_data:
         return False
@@ -143,9 +135,7 @@ def remove_callback_task(symbol: str, condition_type: Optional[str] = None,
     logger.info("【动态回调加仓-移除】%s 任务已被移除/废止", symbol)
     return True
 
-def get_callback_task(symbol: str, store: Optional[CallbackTaskStore] = None) -> Optional[CallbackAdditionTask]:
-    if store is None:
-        store = CallbackTaskStore()
+def get_callback_task(symbol: str, store: AbstractCallbackTaskStore) -> Optional[CallbackAdditionTask]:
     task_data = store.get_task(symbol)
     if task_data:
         task = CallbackAdditionTask.from_dict(task_data)
@@ -153,9 +143,7 @@ def get_callback_task(symbol: str, store: Optional[CallbackTaskStore] = None) ->
             return task
     return None
 
-def get_all_active_tasks(store: Optional[CallbackTaskStore] = None) -> Dict[str, CallbackAdditionTask]:
-    if store is None:
-        store = CallbackTaskStore()
+def get_all_active_tasks(store: AbstractCallbackTaskStore) -> Dict[str, CallbackAdditionTask]:
     active_tasks = {}
     for symbol, task_data in store.all_tasks().items():
         if task_data.get('is_active'):

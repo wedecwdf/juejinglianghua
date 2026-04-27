@@ -1,12 +1,12 @@
 # service/order_executor.py
 # -*- coding: utf-8 -*-
 """
-订单执行服务
+订单执行服务，不再提供默认仓库实例，必须由调用者注入。
 """
 from __future__ import annotations
 import logging
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import pytz
 from repository.gm_data_source import place_order
 from repository.mail_sender import send_email
@@ -19,23 +19,18 @@ from config.strategy import (
     HIGH_FREQUENCY_STOCKS, LOW_FREQUENCY_STOCKS,
     CONDITION8_MULTIPLE_ORDER_ENABLED
 )
-from domain.stores import OrderLedger, SessionRegistry
+from domain.stores.base import AbstractOrderLedger, AbstractSessionRegistry
 
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
 def place_sell(symbol: str, price: float, quantity: int,
                reason: str, condition_type: str, trigger_data: Dict[str, Any],
-               order_ledger: Optional[OrderLedger] = None,
-               session_registry: Optional[SessionRegistry] = None) -> None:
+               order_ledger: AbstractOrderLedger,
+               session_registry: AbstractSessionRegistry) -> None:
     cl_ord_id = place_order(symbol, price, quantity, side=2, position_effect=2, account=ACCOUNT_ID)
     if not cl_ord_id:
         return
-
-    if order_ledger is None:
-        order_ledger = OrderLedger()
-    if session_registry is None:
-        session_registry = SessionRegistry()
 
     order_data = {
         "symbol": symbol,
@@ -91,16 +86,11 @@ def place_sell(symbol: str, price: float, quantity: int,
 
 def place_buy(symbol: str, price: float, quantity: int,
               reason: str, condition_type: str, trigger_data: Dict[str, Any],
-              order_ledger: Optional[OrderLedger] = None,
-              session_registry: Optional[SessionRegistry] = None) -> None:
+              order_ledger: AbstractOrderLedger,
+              session_registry: AbstractSessionRegistry) -> None:
     cl_ord_id = place_order(symbol, price, quantity, side=1, position_effect=1, account=ACCOUNT_ID)
     if not cl_ord_id:
         return
-
-    if order_ledger is None:
-        order_ledger = OrderLedger()
-    if session_registry is None:
-        session_registry = SessionRegistry()
 
     order_data = {
         "symbol": symbol,

@@ -1,6 +1,8 @@
 # domain/contexts/condition9.py
 # -*- coding: utf-8 -*-
-"""条件9第一区间动态止盈上下文"""
+"""
+条件9第一区间动态止盈上下文
+"""
 from __future__ import annotations
 from typing import Dict, Any, Optional
 from .base import BaseConditionContext
@@ -16,6 +18,8 @@ class Condition9Context(BaseConditionContext):
         'condition9_lower_band',
         'condition9_stopped',
         'condition9_triggered_for_spacing',
+        'recheck_after_cancel',
+        'post_cancel_rechecked',
     )
 
     def __init__(self, base_price: float):
@@ -32,6 +36,8 @@ class Condition9Context(BaseConditionContext):
         )
         self.condition9_stopped: bool = False
         self.condition9_triggered_for_spacing: bool = False
+        self.recheck_after_cancel: bool = False
+        self.post_cancel_rechecked: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
         return {slot: getattr(self, slot) for slot in self.__slots__}
