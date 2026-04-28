@@ -1,35 +1,35 @@
 # domain/conditions/ma.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.condition_service import check_condition4, check_condition5, check_condition6, check_condition7
-from config.strategy.config_objects import MaTradingConfig
 
 
-@ConditionRegistry.register(priority=5)
 class MaTradingCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'ma_trading'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         context47 = ctx.context_store.get('condition4_7', symbol,
                                           factory=lambda: self._create_context())
         total_buy = ctx.session_registry.get_total_buy_quantity(symbol)
         config = ctx.config.ma
-        max_total = 10000  # 可移到配置中，此处简化
 
         # 买入条件
         if config.condition4_enabled:
             res = check_condition4(day_data, context47, current_price)
-            if res and total_buy + res["quantity"] <= max_total:
+            if res and total_buy + res["quantity"] <= 10000:  # 上限可移至配置
                 return MaBuyDecision(symbol, current_price, res["quantity"],
                                      res["reason"], 'condition4',
                                      {'trigger_data': res['trigger_data']})
         if config.condition5_enabled:
             res = check_condition5(day_data, context47, current_price)
-            if res and total_buy + res["quantity"] <= max_total:
+            if res and total_buy + res["quantity"] <= 10000:
                 return MaBuyDecision(symbol, current_price, res["quantity"],
                                      res["reason"], 'condition5',
                                      {'trigger_data': res['trigger_data']})
         if config.condition6_enabled:
             res = check_condition6(day_data, context47, current_price)
-            if res and total_buy + res["quantity"] <= max_total:
+            if res and total_buy + res["quantity"] <= 10000:
                 return MaBuyDecision(symbol, current_price, res["quantity"],
                                      res["reason"], 'condition6',
                                      {'trigger_data': res['trigger_data']})

@@ -1,12 +1,14 @@
 # domain/conditions/next_day_stop_loss.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.day_adjust_service import check_dynamic_profit_next_day_adjustment
 
 
-@ConditionRegistry.register(priority=1)   # 最高优先级
 class NextDayStopLossCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'next_day_stop_loss'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         adj_ctx = ctx.context_store.get('next_day', symbol,
                                         factory=lambda: self._create_context())
         qty = check_dynamic_profit_next_day_adjustment(adj_ctx, current_price, available_position)
@@ -37,5 +39,4 @@ class NextDayStopLossDecision(Decision):
         )
 
     def apply(self, ctx):
-        # 状态已在 service 内部更新，此处可留空
         pass

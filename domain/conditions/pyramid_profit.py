@@ -1,13 +1,14 @@
 # domain/conditions/pyramid_profit.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.conditions import check_pyramid_profit
-from config.strategy.config_objects import PyramidProfitConfig
 
 
-@ConditionRegistry.register(priority=7)
 class PyramidProfitCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'pyramid_profit'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         context = ctx.context_store.get('pyramid', symbol,
                                         factory=lambda: self._create_context(base_price))
         res = check_pyramid_profit(symbol, context, current_price, available_position)

@@ -1,12 +1,14 @@
 # domain/conditions/condition8_grid.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.condition_service import check_condition8
 
 
-@ConditionRegistry.register(priority=6)
 class Condition8GridCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'condition8_grid'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         context8 = ctx.context_store.get('condition8', symbol,
                                          factory=lambda: self._create_context(base_price))
         res = check_condition8(day_data, context8, current_price, available_position,

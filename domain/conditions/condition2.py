@@ -1,13 +1,15 @@
 # domain/conditions/condition2.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.condition_service import check_condition2
 from service.order_executor import sell_qty_by_percent
 
 
-@ConditionRegistry.register(priority=2)   # 优先级 2（越小越高）
 class Condition2Condition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'condition2'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         context2 = ctx.context_store.get('condition2', symbol,
                                          factory=lambda: self._create_context())
         increase = (current_price - base_price) / base_price if base_price > 0 else 0
@@ -49,11 +51,11 @@ class Condition2Decision(Decision):
         context2.dynamic_profit_sell_times += 1
         ctx.session_registry.increment_total_sell_times(self.symbol, 1)
         context2.condition2_triggered_and_sold = True
-        # 清理条件9
+        # 清理条件9（保留原逻辑）
         try:
             context9 = ctx.context_store.get('condition9', self.symbol)
+            context9.condition9_triggered = False
+            context9.condition9_high_price = -float('inf')
+            context9.condition9_profit_line = -float('inf')
         except KeyError:
-            return
-        context9.condition9_triggered = False
-        context9.condition9_high_price = -float('inf')
-        context9.condition9_profit_line = -float('inf')
+            pass

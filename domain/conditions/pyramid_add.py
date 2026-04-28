@@ -1,12 +1,14 @@
 # domain/conditions/pyramid_add.py
 from domain.decisions import Condition, Decision, DecisionType
-from domain.conditions.registry import ConditionRegistry
 from service.pyramid_service import check_callback_strategy
 
 
-@ConditionRegistry.register(priority=4)
 class PyramidAddCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+    condition_name = 'pyramid_add'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         result = check_callback_strategy(symbol, current_price, store=ctx.callback_store)
         if result:
             return PyramidAddDecision(

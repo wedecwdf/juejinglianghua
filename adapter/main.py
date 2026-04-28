@@ -2,10 +2,15 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-添加 ContextStore 注入。
+最终完全重构版：配置驱动、条件插件化、日志结构化。
 """
 from __future__ import annotations
-import os, sys, json, threading, time, logging
+import os
+import sys
+import json
+import threading
+import time
+import logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from gm.api import run, MODE_LIVE, ADJUST_PREV, set_token, subscribe
@@ -22,14 +27,29 @@ _startup_info_printed = False
 _startup_lock = threading.Lock()
 
 from config.account import (
-    ACCOUNT_ID, ACCOUNT_DATA_EXPORT_ENABLED, ACCOUNT_DATA_EXPORT_INTERVAL, ACCOUNT_DATA_EXPORT_DIR,
+    ACCOUNT_ID,
+    ACCOUNT_DATA_EXPORT_ENABLED,
+    ACCOUNT_DATA_EXPORT_INTERVAL,
+    ACCOUNT_DATA_EXPORT_DIR,
 )
+# 只导入入口层实际使用的少量配置
 from config.strategy import (
-    SYMBOLS_SOURCE, MANUAL_SYMBOLS_ENABLED, MANUAL_SYMBOLS, ENABLE_SLEEP_MODE,
-    CALLBACK_ADDITION_ENABLED, MIN_TRADE_UNIT, CALLBACK_ON_CONDITION2, CALLBACK_ON_CONDITION9, CALLBACK_ON_CONDITION8,
+    SYMBOLS_SOURCE,
+    MANUAL_SYMBOLS_ENABLED,
+    MANUAL_SYMBOLS,
+    ENABLE_SLEEP_MODE,
+    CALLBACK_ADDITION_ENABLED,
+    MIN_TRADE_UNIT,
+    CALLBACK_ON_CONDITION2,
+    CALLBACK_ON_CONDITION9,
+    CALLBACK_ON_CONDITION8,
 )
 from config.calendar import (
-    TRADING_START_TIME, ENABLE_TRADING_START_TIME, validate_calendar_config, STRATEGY_INIT_TIME, TRADING_HOURS,
+    TRADING_START_TIME,
+    ENABLE_TRADING_START_TIME,
+    validate_calendar_config,
+    STRATEGY_INIT_TIME,
+    TRADING_HOURS,
 )
 
 from use_case.health_check import is_trading_day, is_in_trading_hours
@@ -45,16 +65,44 @@ from service.order_cancel_service import start_auto_cancel_thread
 from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
 
 from repository.stores import (
-    SessionRegistryImpl, OrderLedgerImpl, BoardStateRepositoryImpl, CallbackTaskStoreImpl,
+    SessionRegistryImpl,
+    OrderLedgerImpl,
+    BoardStateRepositoryImpl,
+    CallbackTaskStoreImpl,
 )
+
+# ---------- 条件类导入 ----------
+from domain.conditions.next_day_stop_loss import NextDayStopLossCondition
+from domain.conditions.condition2 import Condition2Condition
+from domain.conditions.condition9 import Condition9Condition
+from domain.conditions.board import BoardCountingCondition, BoardBreakSellCondition
+from domain.conditions.ma import MaTradingCondition
+from domain.conditions.condition8_grid import Condition8GridCondition
+from domain.conditions.pyramid_profit import PyramidProfitCondition
+from domain.conditions.pyramid_add import PyramidAddCondition
+
+# 条件名称 -> (类, 优先级) 映射
+CONDITION_CLASSES = {
+    'next_day_stop_loss': (NextDayStopLossCondition, 1),
+    'condition2': (Condition2Condition, 2),
+    'board_break_sell': (BoardBreakSellCondition, 2),
+    'condition9': (Condition9Condition, 3),
+    'pyramid_add': (PyramidAddCondition, 4),
+    'ma_trading': (MaTradingCondition, 5),
+    'condition8_grid': (Condition8GridCondition, 6),
+    'pyramid_profit': (PyramidProfitCondition, 7),
+    'board_counting': (BoardCountingCondition, 100),
+}
 
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
+
 
 def _json_default(o):
     if isinstance(o, (date, datetime)):
         return o.isoformat()
     raise TypeError
+
 
 def print_startup_info() -> None:
     global _startup_info_printed
@@ -79,6 +127,7 @@ def print_startup_info() -> None:
             logger.info("当前时间 %s 不在交易时段内", now.strftime('%H:%M:%S'))
         _startup_info_printed = True
 
+
 def print_strategy_init_banner(config) -> None:
     logger.info("策略初始化开始 @ %s", datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S'))
     logger.info("使用配置的账户ID: %s", ACCOUNT_ID)
@@ -102,12 +151,25 @@ def print_strategy_init_banner(config) -> None:
         logger.info("  条件9卖出后加仓: %s", '是' if CALLBACK_ON_CONDITION9 else '否')
         logger.info("  条件8卖出后加仓: %s", '是' if CALLBACK_ON_CONDITION8 else '否')
     c2 = config.condition2
-    logger.info(" 条件2: 触发涨幅=%.1f%%, 回落阈值=%.1f%%", c2.trigger_percent*100, c2.decline_percent*100)
+    logger.info(" 条件2(动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
+                '启用' if c2.enabled else '禁用',
+                c2.trigger_percent * 100,
+                c2.decline_percent * 100)
     c9 = config.condition9
-    logger.info(" 条件9: 触发涨幅=%.1f%%, 回落阈值=%.1f%%", c9.trigger_percent*100, c9.decline_percent*100)
+    logger.info(" 条件9(第一区间动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
+                '启用' if c9.enabled else '禁用',
+                c9.trigger_percent * 100,
+                c9.decline_percent * 100)
     c8 = config.condition8
-    logger.info(" 条件8: 上涨触发=%.1f%%, 下跌触发=%.1f%%, 最大交易=%d", c8.rise_percent*100, c8.decline_percent*100, c8.max_trade_times)
-    # 更多打印省略，实际完整请参考之前版本
+    logger.info(" 条件8(动态基准价交易)[%s]: 上涨触发=%.2f%%, 下跌触发=%.2f%%, 最大交易次数=%d",
+                '启用' if c8.enabled else '禁用',
+                c8.rise_percent * 100,
+                c8.decline_percent * 100,
+                c8.max_trade_times)
+    if config.ma.condition4_enabled or config.ma.condition5_enabled or config.ma.condition6_enabled:
+        logger.info(" MA均线交易部分启用")
+    logger.info(" 启用的条件: %s", ', '.join(config.enabled_conditions))
+
 
 def _daily_init_thread():
     while True:
@@ -122,12 +184,14 @@ def _daily_init_thread():
             time.sleep(1)
         time.sleep(1)
 
+
 def real_init(context):
     validate_calendar_config()
     strategy_config = load_strategy_config()
     print_strategy_init_banner(strategy_config)
     logger.info("开始加载持久化数据...")
 
+    # 创建仓库实例
     session_registry = SessionRegistryImpl()
     session_registry.load()
     board_repo = BoardStateRepositoryImpl()
@@ -136,7 +200,24 @@ def real_init(context):
     callback_store.load()
     order_ledger = OrderLedgerImpl()
     order_ledger.load()
-    context_store = ContextStore()  # 新增
+    context_store = ContextStore()
+
+    # 根据配置构建条件列表
+    enabled_names = set(strategy_config.enabled_conditions)
+    conditions = []
+    side_effects = []
+
+    for name in enabled_names:
+        if name in CONDITION_CLASSES:
+            cls_, prio = CONDITION_CLASSES[name]
+            instance = cls_()
+            if instance.is_side_effect:
+                side_effects.append((prio, instance))
+            else:
+                conditions.append((prio, instance))
+
+    conditions.sort(key=lambda x: x[0])
+    side_effects.sort(key=lambda x: x[0])
 
     tick_ctx = TickContext(
         session_registry=session_registry,
@@ -145,6 +226,8 @@ def real_init(context):
         order_ledger=order_ledger,
         config=strategy_config,
         context_store=context_store,
+        conditions=[c for _, c in conditions],
+        side_effects=[c for _, c in side_effects],
     )
     context.tick_ctx = tick_ctx
 
@@ -211,6 +294,7 @@ def real_init(context):
     start_auto_cancel_thread(order_ledger, session_registry)
     logger.info("【init】已启动 09:29 重新订阅、15:30 收盘处理、自动撤单守护线程")
 
+
 def calculate_next_trading_start_time(now: datetime):
     now = now.astimezone(beijing_tz)
     today = now.date()
@@ -223,6 +307,7 @@ def calculate_next_trading_start_time(now: datetime):
         if is_trading_day(next_date):
             return beijing_tz.localize(datetime.combine(next_date, init_time))
     return None
+
 
 def init(context):
     print_startup_info()
@@ -238,6 +323,7 @@ def init(context):
         logger.info("[WAIT] 非交易时段，将在 %s 自动初始化，还需等待 %d 秒。",
                      next_start.strftime('%H:%M:%S'), int(wait_seconds))
         threading.Timer(wait_seconds, lambda: real_init(context)).start()
+
 
 def run_strategy() -> None:
     print_startup_info()
@@ -260,6 +346,7 @@ def run_strategy() -> None:
         logger.info("收到 Ctrl+C，程序退出")
         from config.logging_config import restore_stdio
         restore_stdio()
+
 
 if __name__ == "__main__":
     run_strategy()

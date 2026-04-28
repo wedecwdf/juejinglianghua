@@ -1,16 +1,14 @@
 # config/strategy/config_objects.py
 # -*- coding: utf-8 -*-
 """
-策略配置数据类，将分散的常量收敛为结构化对象。
-支持从环境变量动态覆盖默认值。
+策略配置数据类，所有策略参数均收敛于此。
+支持从环境变量覆盖默认值。
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import os
 
-# ──────────────────────────────────────
-#  条件2 配置
-# ──────────────────────────────────────
+# ---------- 条件2配置 ----------
 @dataclass(frozen=True)
 class Condition2Config:
     enabled: bool = True
@@ -27,9 +25,7 @@ class Condition2Config:
     next_day_max_sell_ratio: float = 0.5
     next_day_max_days: int = 10
 
-# ──────────────────────────────────────
-#  条件9 配置
-# ──────────────────────────────────────
+# ---------- 条件9配置 ----------
 @dataclass(frozen=True)
 class Condition9Config:
     enabled: bool = True
@@ -43,15 +39,13 @@ class Condition9Config:
     sell_percent_low: float = 0.05
     max_sell_times: int = 1
 
-# ──────────────────────────────────────
-#  条件8 完整配置
-# ──────────────────────────────────────
+# ---------- 条件8配置 ----------
 @dataclass(frozen=True)
 class Condition8Config:
     enabled: bool = True
     max_trade_times: int = 100
-    rise_percent: float = 0.1         # 默认上涨触发百分比
-    decline_percent: float = 0.1      # 默认下跌触发百分比
+    rise_percent: float = 0.1
+    decline_percent: float = 0.1
     multiple_order_enabled: bool = True
     grid_interval_percent: float = 0.01
     max_multiple_limit: int = 10
@@ -68,9 +62,7 @@ class Condition8Config:
     buy_quantity: Dict[str, int] = field(default_factory=dict)
     max_total_quantity: Dict[str, int] = field(default_factory=dict)
 
-# ──────────────────────────────────────
-#  MA / 条件4-7 配置
-# ──────────────────────────────────────
+# ---------- MA交易配置 ----------
 @dataclass(frozen=True)
 class MaTradingConfig:
     condition4_enabled: bool = False
@@ -81,16 +73,13 @@ class MaTradingConfig:
     buy_below_ma8_qty: int = 100
     buy_below_ma12_qty: int = 100
 
-# ──────────────────────────────────────
-#  金字塔止盈配置
-# ──────────────────────────────────────
+# ---------- 金字塔止盈配置 ----------
 @dataclass(frozen=True)
 class PyramidProfitConfig:
     enabled: bool = True
     user_base_price: Dict[str, float] = field(default_factory=dict)
     total_quantity: Dict[str, int] = field(default_factory=dict)
     sell_price_offset: float = 0.01
-    # 分级止盈参数
     high_freq_levels: List[float] = field(default_factory=lambda: [0.035, 0.045, 0.065])
     high_freq_ratios: List[float] = field(default_factory=lambda: [0.2, 0.3, 0.5])
     low_freq_levels: List[float] = field(default_factory=lambda: [0.05, 0.07, 0.1])
@@ -98,9 +87,7 @@ class PyramidProfitConfig:
     default_levels: List[float] = field(default_factory=lambda: [0.02, 0.03, 0.039])
     default_ratios: List[float] = field(default_factory=lambda: [0.1, 0.1, 0.1])
 
-# ──────────────────────────────────────
-#  动态回调加仓配置
-# ──────────────────────────────────────
+# ---------- 动态回调加仓配置 ----------
 @dataclass(frozen=True)
 class CallbackAddConfig:
     enabled: bool = True
@@ -110,9 +97,7 @@ class CallbackAddConfig:
     on_condition8: bool = True
     buy_price_offset: float = 0.01
 
-# ──────────────────────────────────────
-#  顶层聚合配置
-# ──────────────────────────────────────
+# ---------- 顶层配置 ----------
 @dataclass(frozen=True)
 class StrategyConfig:
     condition2: Condition2Config = field(default_factory=Condition2Config)
@@ -121,15 +106,27 @@ class StrategyConfig:
     ma: MaTradingConfig = field(default_factory=MaTradingConfig)
     pyramid: PyramidProfitConfig = field(default_factory=PyramidProfitConfig)
     callback: CallbackAddConfig = field(default_factory=CallbackAddConfig)
+    enabled_conditions: List[str] = field(default_factory=lambda: [
+        'next_day_stop_loss',
+        'condition2',
+        'board_break_sell',
+        'condition9',
+        'pyramid_add',
+        'ma_trading',
+        'condition8_grid',
+        'pyramid_profit',
+        'board_counting',
+    ])
 
-# ──────────────────────────────────────
-#  工厂函数：从环境变量覆盖默认值
-# ──────────────────────────────────────
+def _parse_env_list(env_value: str) -> List[str]:
+    if not env_value:
+        return []
+    return [s.strip() for s in env_value.split(',') if s.strip()]
+
 def load_strategy_config() -> StrategyConfig:
     # 条件2
     c2 = Condition2Config(
         enabled=os.getenv('CONDITION2_ENABLED', 'true').lower() == 'true',
-        dynamic_profit_enabled=os.getenv('CONDITION2_DYNAMIC_ENABLED', 'true').lower() == 'true',
         trigger_percent=float(os.getenv('CONDITION2_TRIGGER_PERCENT', 0.0031)),
         decline_percent=float(os.getenv('CONDITION2_DECLINE_PERCENT', 0.001)),
         sell_price_offset=float(os.getenv('CONDITION2_SELL_PRICE_OFFSET', 0.001)),
@@ -137,12 +134,7 @@ def load_strategy_config() -> StrategyConfig:
         dynamic_line_threshold=float(os.getenv('CONDITION2_DYNAMIC_LINE_THRESHOLD', 0.025)),
         sell_percent_high=float(os.getenv('CONDITION2_SELL_PERCENT_HIGH', 0.3)),
         sell_percent_low=float(os.getenv('CONDITION2_SELL_PERCENT_LOW', 0.1)),
-        next_day_adjustment_enabled=os.getenv('CONDITION2_NEXT_DAY_ADJ_ENABLED', 'true').lower() == 'true',
-        next_day_stop_loss_offset=float(os.getenv('CONDITION2_NEXT_DAY_STOP_OFFSET', 0.01)),
-        next_day_max_sell_ratio=float(os.getenv('CONDITION2_NEXT_DAY_MAX_SELL_RATIO', 0.5)),
-        next_day_max_days=int(os.getenv('CONDITION2_NEXT_DAY_MAX_DAYS', 10)),
     )
-
     # 条件9
     c9 = Condition9Config(
         enabled=os.getenv('CONDITION9_ENABLED', 'true').lower() == 'true',
@@ -156,7 +148,6 @@ def load_strategy_config() -> StrategyConfig:
         sell_percent_low=float(os.getenv('CONDITION9_SELL_PERCENT_LOW', 0.05)),
         max_sell_times=int(os.getenv('CONDITION9_MAX_SELL_TIMES', 1)),
     )
-
     # 条件8
     c8 = Condition8Config(
         enabled=os.getenv('CONDITION8_ENABLED', 'true').lower() == 'true',
@@ -175,12 +166,8 @@ def load_strategy_config() -> StrategyConfig:
         lower_band_percent=float(os.getenv('CONDITION8_LOWER_BAND_PERCENT', 0.16)),
         high_freq_stocks=_parse_env_list(os.getenv('CONDITION8_HIGH_FREQ_STOCKS', '')),
         low_freq_stocks=_parse_env_list(os.getenv('CONDITION8_LOW_FREQ_STOCKS', '')),
-        sell_quantity={},  # 可扩展
-        buy_quantity={},
-        max_total_quantity={},
     )
-
-    # MA 交易
+    # MA
     ma = MaTradingConfig(
         condition4_enabled=os.getenv('CONDITION4_ENABLED', 'false').lower() == 'true',
         condition5_enabled=os.getenv('CONDITION5_ENABLED', 'false').lower() == 'true',
@@ -190,16 +177,12 @@ def load_strategy_config() -> StrategyConfig:
         buy_below_ma8_qty=int(os.getenv('BUY_BELOW_MA8_QUANTITY', 100)),
         buy_below_ma12_qty=int(os.getenv('BUY_BELOW_MA12_QUANTITY', 100)),
     )
-
     # 金字塔
     pyramid = PyramidProfitConfig(
         enabled=os.getenv('PYRAMID_PROFIT_ENABLED', 'true').lower() == 'true',
         sell_price_offset=float(os.getenv('PYRAMID_PROFIT_SELL_PRICE_OFFSET', 0.01)),
-        user_base_price={},   # 可从环境变量解析 JSON
-        total_quantity={},
     )
-
-    # 动态回调
+    # 回调加仓
     callback = CallbackAddConfig(
         enabled=os.getenv('CALLBACK_ADDITION_ENABLED', 'true').lower() == 'true',
         min_trade_unit=int(os.getenv('MIN_TRADE_UNIT', 100)),
@@ -208,6 +191,23 @@ def load_strategy_config() -> StrategyConfig:
         on_condition8=os.getenv('CALLBACK_ON_CONDITION8', 'true').lower() == 'true',
         buy_price_offset=float(os.getenv('CALLBACK_BUY_PRICE_OFFSET', 0.01)),
     )
+    # 启用的条件列表
+    enabled_str = os.getenv('ENABLED_CONDITIONS', '')
+    if enabled_str:
+        enabled_conditions = [s.strip() for s in enabled_str.split(',') if s.strip()]
+    else:
+        # 默认启用所有常用条件
+        enabled_conditions = [
+            'next_day_stop_loss',
+            'condition2',
+            'board_break_sell',
+            'condition9',
+            'pyramid_add',
+            'ma_trading',
+            'condition8_grid',
+            'pyramid_profit',
+            'board_counting',
+        ]
 
     return StrategyConfig(
         condition2=c2,
@@ -216,10 +216,5 @@ def load_strategy_config() -> StrategyConfig:
         ma=ma,
         pyramid=pyramid,
         callback=callback,
+        enabled_conditions=enabled_conditions,
     )
-
-def _parse_env_list(env_value: str) -> List[str]:
-    """解析用逗号分隔的股票列表"""
-    if not env_value:
-        return []
-    return [s.strip() for s in env_value.split(',') if s.strip()]
