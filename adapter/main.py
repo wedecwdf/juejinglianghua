@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-完整版：引入 ContextStore，完全注入 TickContext。
+完全分离了 adapter 层，所有 GM API 调用通过 gm_adapter 进行。
 """
 from __future__ import annotations
 import os
@@ -53,7 +53,7 @@ from config.calendar import (
 
 from use_case.health_check import is_trading_day, is_in_trading_hours
 from use_case.init_assets import build_tracking_symbols
-from repository.gm_data_source import load_history_data, get_cash, get_position
+from adapter.gm_adapter import load_history_data, fetch_cash, fetch_positions
 from domain.day_data import DayData
 from domain.contexts.tick_context import TickContext
 from domain.stores.context_store import ContextStore
@@ -83,10 +83,12 @@ from domain.conditions.pyramid_add import PyramidAddCondition
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
+
 def _json_default(o):
     if isinstance(o, (date, datetime)):
         return o.isoformat()
     raise TypeError
+
 
 def print_startup_info() -> None:
     global _startup_info_printed
@@ -110,6 +112,7 @@ def print_startup_info() -> None:
         else:
             logger.info("当前时间 %s 不在交易时段内", now.strftime('%H:%M:%S'))
         _startup_info_printed = True
+
 
 def print_strategy_init_banner(config) -> None:
     logger.info("策略初始化开始 @ %s", datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S'))
@@ -144,6 +147,7 @@ def print_strategy_init_banner(config) -> None:
                 '启用' if c8.enabled else '禁用', c8.rise_percent * 100, c8.decline_percent * 100, c8.max_trade_times)
     logger.info("  启用的条件: %s", ', '.join(config.enabled_conditions))
 
+
 def _daily_init_thread():
     while True:
         now = datetime.now(beijing_tz)
@@ -156,6 +160,7 @@ def _daily_init_thread():
                 logger.info("【daily_init】无标的可订阅")
             time.sleep(1)
         time.sleep(1)
+
 
 def real_init(context):
     validate_calendar_config()
@@ -252,8 +257,8 @@ def real_init(context):
     if ACCOUNT_DATA_EXPORT_ENABLED:
         os.makedirs(ACCOUNT_DATA_EXPORT_DIR, exist_ok=True)
         export_path = os.path.join(ACCOUNT_DATA_EXPORT_DIR, "account_data.json")
-        cash = get_cash()
-        positions = get_position()
+        cash = fetch_cash()
+        positions = fetch_positions()
         data = {"timestamp": datetime.now().isoformat(), "cash": cash, "positions": positions}
         with open(export_path, "w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
@@ -276,6 +281,7 @@ def real_init(context):
     start_auto_cancel_thread(order_ledger, session_registry, context_store)
     logger.info("【init】已启动 09:29 重新订阅、15:30 收盘处理、自动撤单守护线程")
 
+
 def calculate_next_trading_start_time(now: datetime):
     now = now.astimezone(beijing_tz)
     today = now.date()
@@ -288,6 +294,7 @@ def calculate_next_trading_start_time(now: datetime):
         if is_trading_day(next_date):
             return beijing_tz.localize(datetime.combine(next_date, init_time))
     return None
+
 
 def init(context):
     print_startup_info()
@@ -303,6 +310,7 @@ def init(context):
         logger.info("[WAIT] 非交易时段，将在 %s 自动初始化，还需等待 %d 秒。",
                      next_start.strftime('%H:%M:%S'), int(wait_seconds))
         threading.Timer(wait_seconds, lambda: real_init(context)).start()
+
 
 def run_strategy() -> None:
     print_startup_info()
@@ -325,6 +333,7 @@ def run_strategy() -> None:
         logger.info("收到 Ctrl+C，程序退出")
         from config.logging_config import restore_stdio
         restore_stdio()
+
 
 if __name__ == "__main__":
     run_strategy()

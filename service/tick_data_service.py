@@ -1,8 +1,7 @@
 # service/tick_data_service.py
 # -*- coding: utf-8 -*-
 """
-Tick数据处理服务
-使用 ContextStore 获取条件8上下文。
+Tick数据处理服务，延迟导入 adapter 避免循环依赖。
 """
 from __future__ import annotations
 import logging
@@ -11,7 +10,6 @@ from typing import Dict, Any, Optional
 from domain.day_data import DayData
 from domain.stores import SessionRegistry
 from domain.stores.context_store import ContextStore
-from repository.gm_data_source import load_history_data
 from service.indicator_service import calculate_indicators
 from config.strategy import (
     CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT,
@@ -46,6 +44,7 @@ def update_day_data(symbol: str, tick: Dict[str, Any], tick_date: date,
     return day_data
 
 def refresh_indicators(symbol: str, day_data: DayData) -> None:
+    from adapter.gm_adapter import load_history_data   # 延迟导入
     df = load_history_data(symbol, day_data.date)
     if df is not None and not df.empty:
         calculate_indicators(df, day_data)

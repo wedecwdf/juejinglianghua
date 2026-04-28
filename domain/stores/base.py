@@ -1,9 +1,21 @@
 # domain/stores/base.py
 # -*- coding: utf-8 -*-
+"""
+领域存储库抽象接口。抽象 SessionRegistry 只管理行情和买入量计数，
+不包含条件相关方法。AbstractOrderLedger 已拆分为多个小接口。
+"""
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, Any
 from domain.day_data import DayData
 from domain.board import BoardStatus, BoardCountData, BoardBreakStatus
+from .order_interfaces import (
+    OrderRepository,
+    ConditionTriggerRepo,
+    CancelLockManager,
+    SleepStateManager,
+    Condition8OrderTracker,
+)
+
 
 class AbstractSessionRegistry(ABC):
     @abstractmethod
@@ -29,49 +41,19 @@ class AbstractSessionRegistry(ABC):
     @abstractmethod
     def load(self) -> None: ...
 
-class AbstractOrderLedger(ABC):
-    @abstractmethod
-    def add_pending_order(self, cl_ord_id: str, data: Dict[str, Any]) -> None: ...
-    @abstractmethod
-    def remove_pending_order(self, cl_ord_id: str) -> None: ...
-    @abstractmethod
-    def get_pending_order(self, cl_ord_id: str) -> Optional[Dict[str, Any]]: ...
-    @abstractmethod
-    def get_all_pending_orders(self) -> Dict[str, Dict[str, Any]]: ...
-    @abstractmethod
-    def add_condition_trigger(self, cl_ord_id: str, trigger_info: Dict[str, Any]) -> None: ...
-    @abstractmethod
-    def remove_condition_trigger(self, cl_ord_id: str) -> None: ...
-    @abstractmethod
-    def get_condition_trigger(self, cl_ord_id: str) -> Optional[Dict[str, Any]]: ...
-    @abstractmethod
-    def cancel_condition8_opposite(self, symbol: str, keep_cl_ord_id: str) -> None: ...
-    @abstractmethod
-    def get_condition8_pending_pool(self, symbol: str) -> Dict[str, str]: ...
-    @abstractmethod
-    def record_condition8_done_price(self, symbol: str, done_price: float) -> None: ...
-    @abstractmethod
-    def clear_condition8_state(self, symbol: str) -> None: ...
-    @abstractmethod
-    def acquire_cancel_lock(self, symbol: str) -> bool: ...
-    @abstractmethod
-    def release_cancel_lock(self, symbol: str) -> None: ...
-    @abstractmethod
-    def mark_cancelled(self, symbol: str) -> None: ...
-    @abstractmethod
-    def pop_cancelled(self, symbol: str) -> bool: ...
-    @abstractmethod
-    def is_cancelling(self, symbol: str) -> bool: ...
-    @abstractmethod
-    def get_sleep_state(self) -> bool: ...
-    @abstractmethod
-    def set_sleep_state(self, state: bool) -> None: ...
-    @abstractmethod
-    def is_condition8_sleeping(self) -> bool: ...
-    @abstractmethod
-    def save(self) -> None: ...
-    @abstractmethod
-    def load(self) -> None: ...
+
+class AbstractOrderLedger(
+    OrderRepository,
+    ConditionTriggerRepo,
+    CancelLockManager,
+    SleepStateManager,
+    Condition8OrderTracker,
+    ABC,
+):
+    """组合接口，向后兼容原有调用。"""
+    # 所有方法均在上述基类中定义，此组合类无需重复声明
+    ...
+
 
 class AbstractBoardStateRepository(ABC):
     @abstractmethod
@@ -86,6 +68,7 @@ class AbstractBoardStateRepository(ABC):
     def save(self) -> None: ...
     @abstractmethod
     def load(self) -> None: ...
+
 
 class AbstractCallbackTaskStore(ABC):
     @abstractmethod

@@ -1,8 +1,7 @@
 # repository/stores/order_ledger_impl.py
 # -*- coding: utf-8 -*-
 """
-OrderLedger 具体实现，不依赖 StateGateway 的复杂代理。
-直接操作内存字典和 FilePersistence，逐步替代原 Mixin 功能。
+OrderLedger 具体实现，延迟导入 adapter 避免循环依赖。
 """
 from __future__ import annotations
 from typing import Dict, Any, Optional
@@ -10,19 +9,14 @@ from domain.stores.base import AbstractOrderLedger
 from repository.persistence.file_persistence import FilePersistence
 from repository.core.file_path import PENDING_ORDERS_FILE, CONDITION_TRIGGERS_FILE
 
-
 class OrderLedgerImpl(AbstractOrderLedger):
     def __init__(self):
-        # 内存数据容器（原 StateGateway.pending_orders 等）
         self._pending_orders: Dict[str, Dict[str, Any]] = {}
         self._condition_triggers: Dict[str, Dict[str, Any]] = {}
         self._condition8_pending: Dict[str, Dict[str, str]] = {}
-        # 撤单锁相关集合
         self._cancelling_symbols: set[str] = set()
         self._cancelled_symbols: set[str] = set()
-        # 条件8全局休眠
         self._sleep_state: bool = False
-        # 持久化工具
         self._persistence = FilePersistence()
 
     # ---------- 持久化 ----------
@@ -76,6 +70,7 @@ class OrderLedgerImpl(AbstractOrderLedger):
 
     # ---------- 条件8互斥撤单 ----------
     def cancel_condition8_opposite(self, symbol: str, keep_cl_ord_id: str) -> None:
+        from adapter.gm_adapter import cancel_order   # 延迟导入，避免循环
         pool = self._condition8_pending.get(symbol, {}).copy()
         for key, cl_oid in pool.items():
             if cl_oid and cl_oid != keep_cl_ord_id:
@@ -88,7 +83,6 @@ class OrderLedgerImpl(AbstractOrderLedger):
                     account_id = ACCOUNT_ID
                     order["account_id"] = account_id
                     self._pending_orders[cl_oid] = order
-                from repository.gm_data_source import cancel_order
                 try:
                     cancel_order(cl_oid, account_id=account_id)
                     print(f"【条件八互斥撤单】{symbol} 撤销对立挂单 {cl_oid}")
@@ -101,12 +95,9 @@ class OrderLedgerImpl(AbstractOrderLedger):
 
     # ---------- 条件8状态操作 ----------
     def record_condition8_done_price(self, symbol: str, done_price: float) -> None:
-        # 此功能需要操作 SessionRegistry 中的条件上下文，这里暂时委托给外部调用者
-        # 或者通过回调实现，此处保留空实现以避免循环依赖
         pass
 
     def clear_condition8_state(self, symbol: str) -> None:
-        # 同样需要操作条件上下文，暂时空实现
         pass
 
     # ---------- 撤单锁相关 ----------

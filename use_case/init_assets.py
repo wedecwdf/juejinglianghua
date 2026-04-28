@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 资产合并：持仓 + 手动，返回最终订阅列表
+修复循环导入：fetch_positions 在函数内部延迟导入
 """
 from __future__ import annotations
 import logging
@@ -15,13 +16,14 @@ from config.strategy import (
 
 logger = logging.getLogger(__name__)
 
+
 def get_portfolio_symbols() -> List[str]:
     if not ACCOUNT_ID:
         logger.error("错误: 未配置账户ID")
         return []
     try:
-        from gm.api import get_position as gm_get_position
-        positions = gm_get_position()
+        from adapter.gm_adapter import fetch_positions  # 延迟导入，避免循环
+        positions = fetch_positions()
         symbols = [pos["symbol"] for pos in positions
                    if pos["volume"] > 0 and pos["side"] == 1]
         for sym in symbols:
@@ -32,6 +34,7 @@ def get_portfolio_symbols() -> List[str]:
         logger.exception("获取账户持仓失败")
         return []
 
+
 def get_manual_symbols() -> List[str]:
     if not MANUAL_SYMBOLS_ENABLED or not MANUAL_SYMBOLS:
         logger.info("手动输入股票代码功能未启用或列表为空")
@@ -39,6 +42,7 @@ def get_manual_symbols() -> List[str]:
     valid = list({s.strip() for s in MANUAL_SYMBOLS if s.strip()})
     logger.info("手动输入股票代码: %s", ', '.join(valid))
     return valid
+
 
 def build_tracking_symbols() -> List[str]:
     portfolio = get_portfolio_symbols()
