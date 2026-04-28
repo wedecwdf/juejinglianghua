@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Tick数据处理服务
+使用 ContextStore 获取条件8上下文。
 """
 from __future__ import annotations
 import logging
@@ -9,6 +10,7 @@ from datetime import date
 from typing import Dict, Any, Optional
 from domain.day_data import DayData
 from domain.stores import SessionRegistry
+from domain.stores.context_store import ContextStore
 from repository.gm_data_source import load_history_data
 from service.indicator_service import calculate_indicators
 from config.strategy import (
@@ -22,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 def update_day_data(symbol: str, tick: Dict[str, Any], tick_date: date,
                     session_registry: SessionRegistry) -> DayData:
-    """更新或创建 DayData（纯行情）"""
     day_data = session_registry.get(symbol)
     if day_data is None or not day_data.initialized or day_data.date != tick_date:
         base_price = tick["price"]
@@ -50,13 +51,17 @@ def refresh_indicators(symbol: str, day_data: DayData) -> None:
         calculate_indicators(df, day_data)
 
 def print_tick_snapshot(symbol: str, current_price: float, day_data: DayData,
-                        session_registry: Optional[SessionRegistry] = None) -> None:
+                        session_registry: SessionRegistry,
+                        context_store: ContextStore) -> None:
     cond8_ref = day_data.base_price
-    if session_registry:
-        ctx8 = session_registry.get_condition8(symbol, day_data.base_price)
+    try:
+        ctx8 = context_store.get('condition8', symbol)
         ref = ctx8.condition8_reference_price
         if ref and ref > 0:
             cond8_ref = ref
+    except KeyError:
+        pass
+
     increase = (current_price - cond8_ref) / cond8_ref if cond8_ref > 0 else 0
 
     rise_thr = CONDITION8_RISE_PERCENT

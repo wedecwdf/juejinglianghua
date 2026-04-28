@@ -1,7 +1,7 @@
 # service/order_cancel_service.py
 # -*- coding: utf-8 -*-
 """
-自动撤单服务：定时扫描未成交委托，超时即撤；撤单成功后清除条件8最后一次成交价，允许再次触发
+自动撤单服务：增加 context_store 参数以访问条件上下文。
 """
 from __future__ import annotations
 import logging
@@ -11,20 +11,20 @@ from datetime import datetime
 from typing import List, Dict, Any
 from gm.api import get_unfinished_orders, order_cancel as gm_order_cancel
 from config.strategy import (
-    AUTO_CANCEL_ENABLED,
-    AUTO_CANCEL_TIMEOUT,
-    AUTO_CANCEL_CHECK_INTERVAL,
+    AUTO_CANCEL_ENABLED, AUTO_CANCEL_TIMEOUT, AUTO_CANCEL_CHECK_INTERVAL,
     CONDITION8_CANCEL_TIMEOUT,
 )
 from config.account import ACCOUNT_ID
 from repository.mail_sender import send_email
 from domain.stores import OrderLedger, SessionRegistry
+from domain.stores.context_store import ContextStore
 
 logger = logging.getLogger(__name__)
 _canceling_now: set[str] = set()
 _canceling_lock = threading.Lock()
 
-def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionRegistry) -> None:
+def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionRegistry,
+                           context_store: ContextStore) -> None:
     try:
         unf = get_unfinished_orders()
         if not unf:
@@ -121,16 +121,20 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                     logger.info('【条件8撤单清理】%s 状态重置完成', symbol)
 
                 if item.get("is_condition2") or item.get("is_condition9"):
-                    if item.get("is_condition2"):
-                        ctx2 = session_registry.get_condition2(symbol)
-                        ctx2.recheck_after_cancel = True
-                        logger.info('【条件2撤单标记】%s 设置重新判定标记', symbol)
-                    if item.get("is_condition9"):
-                        day_data = session_registry.get(symbol)
-                        if day_data:
-                            ctx9 = session_registry.get_condition9(symbol, day_data.base_price)
+                    try:
+                        ctx2 = context_store.get('condition2', symbol)
+                        if item.get("is_condition2"):
+                            ctx2.recheck_after_cancel = True
+                            logger.info('【条件2撤单标记】%s 设置重新判定标记', symbol)
+                    except KeyError:
+                        pass
+                    try:
+                        ctx9 = context_store.get('condition9', symbol)
+                        if item.get("is_condition9"):
                             ctx9.recheck_after_cancel = True
                             logger.info('【条件9撤单标记】%s 设置重新判定标记', symbol)
+                    except KeyError:
+                        pass
 
                 order_ledger.mark_cancelled(symbol)
                 order_ledger.release_cancel_lock(symbol)
@@ -148,16 +152,17 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
         logger.exception('自动撤单异常')
         send_email("自动撤单异常", str(e))
 
-def _loop(order_ledger: OrderLedger, session_registry: SessionRegistry) -> None:
+def _loop(order_ledger: OrderLedger, session_registry: SessionRegistry, context_store: ContextStore) -> None:
     while True:
         if AUTO_CANCEL_ENABLED:
-            _cancel_timeout_orders(order_ledger, session_registry)
+            _cancel_timeout_orders(order_ledger, session_registry, context_store)
         time.sleep(AUTO_CANCEL_CHECK_INTERVAL)
 
-def start_auto_cancel_thread(order_ledger: OrderLedger, session_registry: SessionRegistry) -> None:
+def start_auto_cancel_thread(order_ledger: OrderLedger, session_registry: SessionRegistry,
+                             context_store: ContextStore) -> None:
     if not AUTO_CANCEL_ENABLED:
         return
-    t = threading.Thread(target=_loop, args=(order_ledger, session_registry), daemon=True)
+    t = threading.Thread(target=_loop, args=(order_ledger, session_registry, context_store), daemon=True)
     t.start()
     logger.info('【自动撤单服务】启动成功，条件8订单超时%d秒，普通订单超时%d秒',
                 CONDITION8_CANCEL_TIMEOUT, AUTO_CANCEL_TIMEOUT)
