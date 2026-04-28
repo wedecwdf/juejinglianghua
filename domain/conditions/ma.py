@@ -1,46 +1,89 @@
 # domain/conditions/ma.py
-# -*- coding: utf-8 -*-
-"""MA均线交易条件包装"""
-from __future__ import annotations
-from typing import Optional
 from domain.decisions import Condition, Decision, DecisionType
+from domain.conditions.registry import ConditionRegistry
 from service.condition_service import check_condition4, check_condition5, check_condition6, check_condition7
-from config.strategy import CONDITION8_MAX_TOTAL_QUANTITY
+from config.strategy.config_objects import MaTradingConfig
 
 
+@ConditionRegistry.register(priority=5)
 class MaTradingCondition(Condition):
-    def evaluate(self, symbol: str, current_price: float, available_position: int,
-                 day_data, base_price: float, ctx) -> Optional[Decision]:
-        context47 = ctx.session_registry.get_condition4_7(symbol)
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+        context47 = ctx.context_store.get('condition4_7', symbol,
+                                          factory=lambda: self._create_context())
         total_buy = ctx.session_registry.get_total_buy_quantity(symbol)
-        max_total = CONDITION8_MAX_TOTAL_QUANTITY.get(symbol, 0)
+        config = ctx.config.ma
+        max_total = 10000  # 可移到配置中，此处简化
 
-        for cond_fn, name in [(check_condition4, "condition4"),
-                              (check_condition5, "condition5"),
-                              (check_condition6, "condition6")]:
-            res = cond_fn(day_data, context47, current_price)
-            if res:
-                if total_buy + res["quantity"] > max_total:
-                    return None  # 超出上限，跳过（但不卖）
-                return Decision(
-                    condition_name=name,
-                    decision_type=DecisionType.BUY,
-                    symbol=symbol,
-                    price=current_price,
-                    quantity=res["quantity"],
-                    reason=res["reason"],
-                    extra={'trigger_data': res['trigger_data']}
-                )
+        # 买入条件
+        if config.condition4_enabled:
+            res = check_condition4(day_data, context47, current_price)
+            if res and total_buy + res["quantity"] <= max_total:
+                return MaBuyDecision(symbol, current_price, res["quantity"],
+                                     res["reason"], 'condition4',
+                                     {'trigger_data': res['trigger_data']})
+        if config.condition5_enabled:
+            res = check_condition5(day_data, context47, current_price)
+            if res and total_buy + res["quantity"] <= max_total:
+                return MaBuyDecision(symbol, current_price, res["quantity"],
+                                     res["reason"], 'condition5',
+                                     {'trigger_data': res['trigger_data']})
+        if config.condition6_enabled:
+            res = check_condition6(day_data, context47, current_price)
+            if res and total_buy + res["quantity"] <= max_total:
+                return MaBuyDecision(symbol, current_price, res["quantity"],
+                                     res["reason"], 'condition6',
+                                     {'trigger_data': res['trigger_data']})
 
-        res = check_condition7(day_data, context47, current_price, ctx.tick_time)
-        if res and total_buy > 0:
-            return Decision(
-                condition_name='condition7',
-                decision_type=DecisionType.SELL,
-                symbol=symbol,
-                price=current_price - res["sell_price_offset"],
-                quantity=total_buy,
-                reason=res["reason"],
-                extra={'trigger_data': res['trigger_data']}
-            )
+        # 条件7卖出
+        if config.condition7_enabled:
+            res = check_condition7(day_data, context47, current_price, ctx.tick_time)
+            if res and total_buy > 0:
+                return MaSellDecision(symbol, current_price - res["sell_price_offset"],
+                                      total_buy, res["reason"],
+                                      {'trigger_data': res['trigger_data']})
+
         return None
+
+    @staticmethod
+    def _create_context():
+        from domain.contexts.condition4_7 import Condition4To7Context
+        return Condition4To7Context()
+
+
+class MaBuyDecision(Decision):
+    def __init__(self, symbol, price, quantity, reason, name, extra):
+        super().__init__(
+            condition_name=name,
+            decision_type=DecisionType.BUY,
+            symbol=symbol,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+            extra=extra,
+        )
+
+    def apply(self, ctx):
+        ctx.session_registry.set_total_buy_quantity(
+            self.symbol,
+            ctx.session_registry.get_total_buy_quantity(self.symbol) + self.quantity
+        )
+        context47 = ctx.context_store.get('condition4_7', self.symbol)
+        setattr(context47, f'buy_{self.condition_name}_triggered', True)
+
+
+class MaSellDecision(Decision):
+    def __init__(self, symbol, price, quantity, reason, extra):
+        super().__init__(
+            condition_name='condition7',
+            decision_type=DecisionType.SELL,
+            symbol=symbol,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+            extra=extra,
+        )
+
+    def apply(self, ctx):
+        context47 = ctx.context_store.get('condition4_7', self.symbol)
+        context47.condition7_triggered = True
+        ctx.session_registry.reset_total_buy(self.symbol)

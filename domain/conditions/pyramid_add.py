@@ -1,24 +1,34 @@
 # domain/conditions/pyramid_add.py
-# -*- coding: utf-8 -*-
-"""动态回调加仓条件包装"""
-from __future__ import annotations
-from typing import Optional
 from domain.decisions import Condition, Decision, DecisionType
+from domain.conditions.registry import ConditionRegistry
 from service.pyramid_service import check_callback_strategy
 
 
+@ConditionRegistry.register(priority=4)
 class PyramidAddCondition(Condition):
-    def evaluate(self, symbol: str, current_price: float, available_position: int,
-                 day_data, base_price: float, ctx) -> Optional[Decision]:
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
         result = check_callback_strategy(symbol, current_price, store=ctx.callback_store)
         if result:
-            return Decision(
-                condition_name='callback_addition',
-                decision_type=DecisionType.BUY,
+            return PyramidAddDecision(
                 symbol=symbol,
                 price=current_price,
                 quantity=result['quantity'],
                 reason=result['reason'],
-                extra={'trigger_data': result.get('trigger_data', {})}
             )
         return None
+
+
+class PyramidAddDecision(Decision):
+    def __init__(self, symbol, price, quantity, reason):
+        super().__init__(
+            condition_name='callback_addition',
+            decision_type=DecisionType.BUY,
+            symbol=symbol,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+        )
+
+    def apply(self, ctx):
+        from service.pyramid_service import complete_callback_task
+        complete_callback_task(self.symbol, store=ctx.callback_store)

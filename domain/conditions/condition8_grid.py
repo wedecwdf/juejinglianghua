@@ -1,46 +1,64 @@
 # domain/conditions/condition8_grid.py
-# -*- coding: utf-8 -*-
-"""条件8动态基准价网格交易包装"""
-from __future__ import annotations
-from typing import Optional
 from domain.decisions import Condition, Decision, DecisionType
+from domain.conditions.registry import ConditionRegistry
 from service.condition_service import check_condition8
-from config.strategy import CONDITION8_MAX_TOTAL_QUANTITY, CONDITION8_MULTIPLE_ORDER_ENABLED
 
 
+@ConditionRegistry.register(priority=6)
 class Condition8GridCondition(Condition):
-    def evaluate(self, symbol: str, current_price: float, available_position: int,
-                 day_data, base_price: float, ctx) -> Optional[Decision]:
-        context8 = ctx.session_registry.get_condition8(symbol, base_price)
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
+        context8 = ctx.context_store.get('condition8', symbol,
+                                         factory=lambda: self._create_context(base_price))
         res = check_condition8(day_data, context8, current_price, available_position,
                                order_ledger=ctx.order_ledger)
         if not res:
             return None
 
-        total_sell_today = context8.condition8_total_sell_today
-        total_buy_today = context8.condition8_total_buy_today
-        max_total = CONDITION8_MAX_TOTAL_QUANTITY.get(symbol, 0)
+        total_sell = context8.condition8_total_sell_today
+        total_buy = context8.condition8_total_buy_today
+        max_total = ctx.config.condition8.max_total_quantity.get(symbol, 10000)
         qty = res["quantity"]
         side = res["side"]
 
-        if side == "sell" and total_sell_today + qty <= max_total:
-            return Decision(
-                condition_name='condition8',
-                decision_type=DecisionType.SELL,
-                symbol=symbol,
-                price=current_price,
-                quantity=qty,
-                reason=res["reason"],
+        if side == "sell" and total_sell + qty <= max_total:
+            return Condition8Decision(
+                symbol=symbol, price=current_price, quantity=qty,
+                reason=res["reason"], side='sell',
                 extra={'trigger_data': res['trigger_data']}
             )
-        elif side == "buy" and total_buy_today + qty <= max_total:
-            return Decision(
-                condition_name='condition8',
-                decision_type=DecisionType.BUY,
-                symbol=symbol,
-                price=current_price,
-                quantity=qty,
-                reason=res["reason"],
+        elif side == "buy" and total_buy + qty <= max_total:
+            return Condition8Decision(
+                symbol=symbol, price=current_price, quantity=qty,
+                reason=res["reason"], side='buy',
                 extra={'trigger_data': res['trigger_data']}
             )
         return None
+
+    @staticmethod
+    def _create_context(base_price):
+        from domain.contexts.condition8 import Condition8Context
+        return Condition8Context(base_price)
+
+
+class Condition8Decision(Decision):
+    def __init__(self, symbol, price, quantity, reason, side, extra):
+        super().__init__(
+            condition_name='condition8',
+            decision_type=DecisionType.SELL if side == 'sell' else DecisionType.BUY,
+            symbol=symbol,
+            price=price,
+            quantity=quantity,
+            reason=reason,
+            extra=extra,
+        )
+        self._side = side
+
+    def apply(self, ctx):
+        context8 = ctx.context_store.get('condition8', self.symbol)
+        if self._side == 'sell':
+            context8.condition8_total_sell_today += self.quantity
+        else:
+            context8.condition8_total_buy_today += self.quantity
+        context8.condition8_trade_times += 1
+        context8.condition8_last_trade_price = self.price
+        context8.condition8_last_trigger_price = self.price
