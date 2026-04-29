@@ -1,7 +1,7 @@
 # service/trade_engine.py
 # -*- coding: utf-8 -*-
 """
-交易条件执行引擎 - 最终版，完整注入 ContextStore。
+交易条件执行引擎 - 最终版，正确传递 TickContext 给 apply。
 """
 from __future__ import annotations
 import logging
@@ -15,31 +15,36 @@ from service.order_executor import place_sell, place_buy
 logger = logging.getLogger(__name__)
 
 
-def _execute_decision(decision: Decision, ctx: TickContext):
+def _execute_decision(decision: Decision,
+                      order_repo,
+                      condition_trigger_repo,
+                      session_registry,
+                      context_store,
+                      ctx: TickContext):
     if decision.decision_type == 'sell':
         place_sell(decision.symbol, decision.price, decision.quantity,
                    decision.reason, decision.condition_name,
                    decision.extra.get('trigger_data', {}),
-                   order_ledger=ctx.order_ledger,
-                   session_registry=ctx.session_registry,
-                   context_store=ctx.context_store)
+                   order_ledger=order_repo,
+                   session_registry=session_registry,
+                   context_store=context_store)
     elif decision.decision_type == 'buy':
         place_buy(decision.symbol, decision.price, decision.quantity,
                   decision.reason, decision.condition_name,
                   decision.extra.get('trigger_data', {}),
-                  order_ledger=ctx.order_ledger,
-                  session_registry=ctx.session_registry,
-                  context_store=ctx.context_store)
+                  order_ledger=order_repo,
+                  session_registry=session_registry,
+                  context_store=context_store)
     decision.apply(ctx)
 
 
-def _collect_shared_state(ctx: TickContext, symbol: str) -> dict:
+def _collect_shared_state(conditions, side_effects, context_store, symbol: str) -> dict:
     state = {}
-    for cond_list in (ctx.conditions, ctx.side_effects):
+    for cond_list in (conditions, side_effects):
         for cond in cond_list:
             if cond.condition_name == 'condition2':
                 try:
-                    context2 = ctx.context_store.get('condition2', symbol)
+                    context2 = context_store.get('condition2', symbol)
                     state['condition2_active'] = context2.dynamic_profit_triggered
                 except KeyError:
                     pass
@@ -56,23 +61,36 @@ def execute_conditions(symbol: str, current_price: float,
     if not should_start_trading(tick_time):
         return
 
-    total_sell = ctx.session_registry.get_total_sell_times(symbol)
+    # 解构所有需要的依赖
+    session_registry = ctx.session_registry
+    board_repo = ctx.board_repo
+    order_repo = ctx.order_repo
+    condition_trigger_repo = ctx.condition_trigger_repo
+    cancel_lock_manager = ctx.cancel_lock_manager
+    sleep_state_manager = ctx.sleep_state_manager
+    condition8_tracker = ctx.condition8_tracker
+    context_store = ctx.context_store
+    conditions = ctx.conditions
+    side_effects = ctx.side_effects
+
+    total_sell = session_registry.get_total_sell_times(symbol)
     if total_sell >= MAX_TOTAL_SELL_TIMES:
         return
 
     ctx.tick_time = tick_time
 
-    for cond in ctx.side_effects:
+    # 执行副作用条件
+    for cond in side_effects:
         cond.evaluate(symbol, current_price, available_position, day_data, base_price, ctx, {})
 
-    shared_state = _collect_shared_state(ctx, symbol)
+    shared_state = _collect_shared_state(conditions, side_effects, context_store, symbol)
 
-    arbiter = DecisionArbiter(ctx.conditions)
+    arbiter = DecisionArbiter(conditions)
     best = arbiter.best_decision(symbol, current_price, available_position,
                                  day_data, base_price, ctx, shared_state)
 
     if best:
         try:
-            _execute_decision(best, ctx)
+            _execute_decision(best, order_repo, condition_trigger_repo, session_registry, context_store, ctx)
         except Exception as e:
             logger.exception("执行决策失败 %s: %s", best.condition_name, e)

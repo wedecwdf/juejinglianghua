@@ -1,7 +1,7 @@
 # service/order_cancel_service.py
 # -*- coding: utf-8 -*-
 """
-自动撤单服务：增加 context_store 参数以访问条件上下文。
+自动撤单服务，使用拆分后的小接口。
 """
 from __future__ import annotations
 import logging
@@ -16,14 +16,17 @@ from config.strategy import (
 )
 from config.account import ACCOUNT_ID
 from repository.mail_sender import send_email
-from domain.stores import OrderLedger, SessionRegistry
+from domain.stores.order_interfaces import OrderRepository, CancelLockManager
+from domain.stores.base import AbstractSessionRegistry
 from domain.stores.context_store import ContextStore
 
 logger = logging.getLogger(__name__)
 _canceling_now: set[str] = set()
 _canceling_lock = threading.Lock()
 
-def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionRegistry,
+def _cancel_timeout_orders(order_repo: OrderRepository,
+                           cancel_lock_manager: CancelLockManager,
+                           session_registry: AbstractSessionRegistry,
                            context_store: ContextStore) -> None:
     try:
         unf = get_unfinished_orders()
@@ -49,7 +52,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                 except Exception:
                     continue
 
-            local_order = order_ledger.get_pending_order(cl_ord_id)
+            local_order = order_repo.get_pending_order(cl_ord_id)
             is_condition8 = bool(local_order and local_order.get('condition_type') == 'condition8')
             condition_type = local_order.get('condition_type') if local_order else None
             is_condition2 = (condition_type == 'condition2')
@@ -62,7 +65,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                     logger.info('【撤单跳过】%s 订单 %s 无有效 account_id', o["symbol"], cl_ord_id)
                     continue
                 if local_order and 'account_id' not in local_order:
-                    order_ledger.add_pending_order(cl_ord_id, {**local_order, 'account_id': account_id})
+                    order_repo.add_pending_order(cl_ord_id, {**local_order, 'account_id': account_id})
 
                 to_cancel.append({
                     "cl_ord_id": cl_ord_id,
@@ -87,7 +90,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
 
         for item in to_cancel:
             symbol = item["symbol"]
-            if order_ledger.acquire_cancel_lock(symbol):
+            if cancel_lock_manager.acquire_cancel_lock(symbol):
                 logger.info('【撤单保护】%s 获得撤单锁，开始撤单', symbol)
             else:
                 logger.info('【撤单保护】%s 已在撤单中，跳过本次撤单', symbol)
@@ -96,7 +99,7 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
         to_cancel = [i for i in to_cancel if i["cl_ord_id"] is not None]
         if not to_cancel:
             for item in to_cancel:
-                order_ledger.release_cancel_lock(item["symbol"])
+                cancel_lock_manager.release_cancel_lock(item["symbol"])
             return
 
         final_cancel = [{"cl_ord_id": i["cl_ord_id"], "account_id": i["account_id"]} for i in to_cancel]
@@ -114,11 +117,11 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
             for item in to_cancel:
                 cl_ord_id = item["cl_ord_id"]
                 symbol = item["symbol"]
-                order_ledger.remove_pending_order(cl_ord_id)
+                order_repo.remove_pending_order(cl_ord_id)
 
                 if item.get("is_condition8"):
-                    order_ledger.clear_condition8_state(symbol)
-                    logger.info('【条件8撤单清理】%s 状态重置完成', symbol)
+                    # 条件8状态清理已通过 condition8_tracker 完成，此处只需撤销锁
+                    pass
 
                 if item.get("is_condition2") or item.get("is_condition9"):
                     try:
@@ -136,8 +139,8 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
                     except KeyError:
                         pass
 
-                order_ledger.mark_cancelled(symbol)
-                order_ledger.release_cancel_lock(symbol)
+                cancel_lock_manager.mark_cancelled(symbol)
+                cancel_lock_manager.release_cancel_lock(symbol)
                 with _canceling_lock:
                     _canceling_now.discard(cl_ord_id)
 
@@ -152,17 +155,25 @@ def _cancel_timeout_orders(order_ledger: OrderLedger, session_registry: SessionR
         logger.exception('自动撤单异常')
         send_email("自动撤单异常", str(e))
 
-def _loop(order_ledger: OrderLedger, session_registry: SessionRegistry, context_store: ContextStore) -> None:
+def _loop(order_repo: OrderRepository,
+          cancel_lock_manager: CancelLockManager,
+          session_registry: AbstractSessionRegistry,
+          context_store: ContextStore) -> None:
     while True:
         if AUTO_CANCEL_ENABLED:
-            _cancel_timeout_orders(order_ledger, session_registry, context_store)
+            _cancel_timeout_orders(order_repo, cancel_lock_manager, session_registry, context_store)
         time.sleep(AUTO_CANCEL_CHECK_INTERVAL)
 
-def start_auto_cancel_thread(order_ledger: OrderLedger, session_registry: SessionRegistry,
-                             context_store: ContextStore) -> None:
+def start_auto_cancel_thread(order_ledger, session_registry, context_store):
+    # order_ledger 是完整的 OrderLedgerImpl，我们提取所需接口
     if not AUTO_CANCEL_ENABLED:
         return
-    t = threading.Thread(target=_loop, args=(order_ledger, session_registry, context_store), daemon=True)
+    t = threading.Thread(target=_loop, args=(
+        order_ledger.as_order_repo(),
+        order_ledger.as_cancel_lock_manager(),
+        session_registry,
+        context_store,
+    ), daemon=True)
     t.start()
     logger.info('【自动撤单服务】启动成功，条件8订单超时%d秒，普通订单超时%d秒',
                 CONDITION8_CANCEL_TIMEOUT, AUTO_CANCEL_TIMEOUT)

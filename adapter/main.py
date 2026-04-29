@@ -2,15 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-完全分离了 adapter 层，所有 GM API 调用通过 gm_adapter 进行。
+传递 context_store 到收盘处理。
 """
 from __future__ import annotations
-import os
-import sys
-import json
-import threading
-import time
-import logging
+import os, sys, json, threading, time, logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from gm.api import run, MODE_LIVE, ADJUST_PREV, set_token, subscribe
@@ -27,28 +22,14 @@ _startup_info_printed = False
 _startup_lock = threading.Lock()
 
 from config.account import (
-    ACCOUNT_ID,
-    ACCOUNT_DATA_EXPORT_ENABLED,
-    ACCOUNT_DATA_EXPORT_INTERVAL,
-    ACCOUNT_DATA_EXPORT_DIR,
+    ACCOUNT_ID, ACCOUNT_DATA_EXPORT_ENABLED, ACCOUNT_DATA_EXPORT_INTERVAL, ACCOUNT_DATA_EXPORT_DIR,
 )
 from config.strategy import (
-    SYMBOLS_SOURCE,
-    MANUAL_SYMBOLS_ENABLED,
-    MANUAL_SYMBOLS,
-    ENABLE_SLEEP_MODE,
-    CALLBACK_ADDITION_ENABLED,
-    MIN_TRADE_UNIT,
-    CALLBACK_ON_CONDITION2,
-    CALLBACK_ON_CONDITION9,
-    CALLBACK_ON_CONDITION8,
+    SYMBOLS_SOURCE, MANUAL_SYMBOLS_ENABLED, MANUAL_SYMBOLS, ENABLE_SLEEP_MODE,
+    CALLBACK_ADDITION_ENABLED, MIN_TRADE_UNIT, CALLBACK_ON_CONDITION2, CALLBACK_ON_CONDITION9, CALLBACK_ON_CONDITION8,
 )
 from config.calendar import (
-    TRADING_START_TIME,
-    ENABLE_TRADING_START_TIME,
-    validate_calendar_config,
-    STRATEGY_INIT_TIME,
-    TRADING_HOURS,
+    TRADING_START_TIME, ENABLE_TRADING_START_TIME, validate_calendar_config, STRATEGY_INIT_TIME, TRADING_HOURS,
 )
 
 from use_case.health_check import is_trading_day, is_in_trading_hours
@@ -64,13 +45,9 @@ from service.order_cancel_service import start_auto_cancel_thread
 from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
 
 from repository.stores import (
-    SessionRegistryImpl,
-    OrderLedgerImpl,
-    BoardStateRepositoryImpl,
-    CallbackTaskStoreImpl,
+    SessionRegistryImpl, OrderLedgerImpl, BoardStateRepositoryImpl, CallbackTaskStoreImpl,
 )
 
-# 导入条件类，用于构建条件列表
 from domain.conditions.next_day_stop_loss import NextDayStopLossCondition
 from domain.conditions.condition2 import Condition2Condition
 from domain.conditions.condition9 import Condition9Condition
@@ -178,7 +155,6 @@ def real_init(context):
     order_ledger.load()
     context_store = ContextStore()
 
-    # 构建条件实例
     condition_classes = {
         'next_day_stop_loss': (NextDayStopLossCondition, 1),
         'condition2': (Condition2Condition, 2),
@@ -210,9 +186,13 @@ def real_init(context):
         session_registry=session_registry,
         board_repo=board_repo,
         callback_store=callback_store,
-        order_ledger=order_ledger,
-        config=strategy_config,
+        order_repo=order_ledger.as_order_repo(),
+        condition_trigger_repo=order_ledger.as_condition_trigger_repo(),
+        cancel_lock_manager=order_ledger.as_cancel_lock_manager(),
+        sleep_state_manager=order_ledger.as_sleep_state_manager(),
+        condition8_tracker=order_ledger.as_condition8_tracker(),
         context_store=context_store,
+        config=strategy_config,
         conditions=conditions,
         side_effects=side_effects,
     )
@@ -271,7 +251,7 @@ def real_init(context):
                 from use_case.handle_close import handle_market_close
                 symbols = build_tracking_symbols()
                 for sym in symbols:
-                    handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger)
+                    handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger, context_store)
                 logger.info("【daily_close】15:30 收盘处理完成")
                 time.sleep(1)
             time.sleep(1)

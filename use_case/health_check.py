@@ -1,8 +1,7 @@
 # use_case/health_check.py
 # -*- coding: utf-8 -*-
 """
-交易日/时段/休眠判断，无 GM 依赖
-所有 print 替换为 logger。
+交易日/时段/休眠判断，无 GM 直接依赖，通过 adapter 获取交易日。
 """
 from __future__ import annotations
 import logging
@@ -19,7 +18,6 @@ from config.calendar import (
     ENABLE_TRADING_START_TIME
 )
 from config.strategy import ENABLE_SLEEP_MODE
-from repository.gm_data_source import get_trading_dates
 
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
@@ -27,6 +25,7 @@ beijing_tz = pytz.timezone("Asia/Shanghai")
 
 def is_trading_day(check_date: date) -> bool:
     try:
+        from adapter.gm_adapter import get_trading_dates
         date_str = check_date.strftime("%Y-%m-%d")
         dates = get_trading_dates(start_date=date_str, end_date=date_str)
         return len(dates) > 0

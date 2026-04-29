@@ -1,15 +1,23 @@
 # repository/stores/order_ledger_impl.py
 # -*- coding: utf-8 -*-
 """
-OrderLedger 具体实现，延迟导入 adapter 避免循环依赖。
+OrderLedger 实现，同时实现所有拆分后的小接口，并提供拆解方法。
 """
 from __future__ import annotations
 from typing import Dict, Any, Optional
-from domain.stores.base import AbstractOrderLedger
+from domain.stores.order_interfaces import (
+    OrderRepository,
+    ConditionTriggerRepo,
+    CancelLockManager,
+    SleepStateManager,
+    Condition8OrderTracker,
+)
 from repository.persistence.file_persistence import FilePersistence
 from repository.core.file_path import PENDING_ORDERS_FILE, CONDITION_TRIGGERS_FILE
 
-class OrderLedgerImpl(AbstractOrderLedger):
+class OrderLedgerImpl(OrderRepository, ConditionTriggerRepo,
+                      CancelLockManager, SleepStateManager,
+                      Condition8OrderTracker):
     def __init__(self):
         self._pending_orders: Dict[str, Dict[str, Any]] = {}
         self._condition_triggers: Dict[str, Dict[str, Any]] = {}
@@ -18,6 +26,9 @@ class OrderLedgerImpl(AbstractOrderLedger):
         self._cancelled_symbols: set[str] = set()
         self._sleep_state: bool = False
         self._persistence = FilePersistence()
+
+    # 所有方法实现完全保留（挂单、触发记录、条件8互斥撤单、锁管理、休眠状态），此处省略重复，但必须存在
+    # 为了文件完整性，下面是所有方法（与之前相同，但类继承改为平铺的五个接口）
 
     # ---------- 持久化 ----------
     def load(self) -> None:
@@ -32,7 +43,7 @@ class OrderLedgerImpl(AbstractOrderLedger):
         self._persistence.save(PENDING_ORDERS_FILE, self._pending_orders)
         self._persistence.save(CONDITION_TRIGGERS_FILE, self._condition_triggers)
 
-    # ---------- 挂单管理 ----------
+    # ---------- OrderRepository ----------
     def add_pending_order(self, cl_ord_id: str, data: Dict[str, Any]) -> None:
         self._pending_orders[cl_ord_id] = data
         symbol = data["symbol"]
@@ -58,7 +69,7 @@ class OrderLedgerImpl(AbstractOrderLedger):
     def get_all_pending_orders(self) -> Dict[str, Dict[str, Any]]:
         return self._pending_orders
 
-    # ---------- 条件触发记录 ----------
+    # ---------- ConditionTriggerRepo ----------
     def add_condition_trigger(self, cl_ord_id: str, trigger_info: Dict[str, Any]) -> None:
         self._condition_triggers[cl_ord_id] = trigger_info
 
@@ -68,9 +79,41 @@ class OrderLedgerImpl(AbstractOrderLedger):
     def get_condition_trigger(self, cl_ord_id: str) -> Optional[Dict[str, Any]]:
         return self._condition_triggers.get(cl_ord_id)
 
-    # ---------- 条件8互斥撤单 ----------
+    # ---------- CancelLockManager ----------
+    def acquire_cancel_lock(self, symbol: str) -> bool:
+        if symbol in self._cancelling_symbols:
+            return False
+        self._cancelling_symbols.add(symbol)
+        return True
+
+    def release_cancel_lock(self, symbol: str) -> None:
+        self._cancelling_symbols.discard(symbol)
+
+    def mark_cancelled(self, symbol: str) -> None:
+        self._cancelled_symbols.add(symbol)
+
+    def pop_cancelled(self, symbol: str) -> bool:
+        if symbol in self._cancelled_symbols:
+            self._cancelled_symbols.discard(symbol)
+            return True
+        return False
+
+    def is_cancelling(self, symbol: str) -> bool:
+        return symbol in self._cancelling_symbols
+
+    # ---------- SleepStateManager ----------
+    def get_sleep_state(self) -> bool:
+        return self._sleep_state
+
+    def set_sleep_state(self, state: bool) -> None:
+        self._sleep_state = state
+
+    def is_condition8_sleeping(self) -> bool:
+        return self._sleep_state
+
+    # ---------- Condition8OrderTracker ----------
     def cancel_condition8_opposite(self, symbol: str, keep_cl_ord_id: str) -> None:
-        from adapter.gm_adapter import cancel_order   # 延迟导入，避免循环
+        from adapter.gm_adapter import cancel_order
         pool = self._condition8_pending.get(symbol, {}).copy()
         for key, cl_oid in pool.items():
             if cl_oid and cl_oid != keep_cl_ord_id:
@@ -93,41 +136,25 @@ class OrderLedgerImpl(AbstractOrderLedger):
     def get_condition8_pending_pool(self, symbol: str) -> Dict[str, str]:
         return self._condition8_pending.get(symbol, {})
 
-    # ---------- 条件8状态操作 ----------
     def record_condition8_done_price(self, symbol: str, done_price: float) -> None:
+        # 空实现，待后续迁移到 Condition8OrderTracker 的真实现
         pass
 
     def clear_condition8_state(self, symbol: str) -> None:
         pass
 
-    # ---------- 撤单锁相关 ----------
-    def acquire_cancel_lock(self, symbol: str) -> bool:
-        if symbol in self._cancelling_symbols:
-            return False
-        self._cancelling_symbols.add(symbol)
-        return True
+    # 提供拆解方法，用于构建TickContext时获取各个接口
+    def as_order_repo(self) -> OrderRepository:
+        return self
 
-    def release_cancel_lock(self, symbol: str) -> None:
-        self._cancelling_symbols.discard(symbol)
+    def as_condition_trigger_repo(self) -> ConditionTriggerRepo:
+        return self
 
-    def mark_cancelled(self, symbol: str) -> None:
-        self._cancelled_symbols.add(symbol)
+    def as_cancel_lock_manager(self) -> CancelLockManager:
+        return self
 
-    def pop_cancelled(self, symbol: str) -> bool:
-        if symbol in self._cancelled_symbols:
-            self._cancelled_symbols.discard(symbol)
-            return True
-        return False
+    def as_sleep_state_manager(self) -> SleepStateManager:
+        return self
 
-    def is_cancelling(self, symbol: str) -> bool:
-        return symbol in self._cancelling_symbols
-
-    # ---------- 全局休眠状态 ----------
-    def get_sleep_state(self) -> bool:
-        return self._sleep_state
-
-    def set_sleep_state(self, state: bool) -> None:
-        self._sleep_state = state
-
-    def is_condition8_sleeping(self) -> bool:
-        return self._sleep_state
+    def as_condition8_tracker(self) -> Condition8OrderTracker:
+        return self
