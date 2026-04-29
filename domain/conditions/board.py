@@ -1,11 +1,17 @@
 # domain/conditions/board.py
+# -*- coding: utf-8 -*-
+"""
+板数相关条件包装器：
+- BoardCountingCondition：副作用，更新封板计数
+- BoardBreakSellCondition：炸板卖出决策，使用 ContextStore
+"""
 from domain.decisions import Condition, Decision, DecisionType
 from service.board_service import handle_board_counting, handle_dynamic_profit_on_board_break
 
 
 class BoardCountingCondition(Condition):
     condition_name = 'board_counting'
-    is_side_effect = True   # 仅更新封板计数和状态机，不产生决策
+    is_side_effect = True
     depends_on = []
 
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
@@ -27,7 +33,8 @@ class BoardBreakSellCondition(Condition):
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         board_status = ctx.board_repo.get_board_status(symbol)
         qty = handle_dynamic_profit_on_board_break(symbol, current_price, available_position,
-                                                   day_data, board_status, ctx.session_registry)
+                                                   day_data, board_status,
+                                                   ctx.context_store)   # 传递 context_store
         if qty:
             return BoardBreakSellDecision(
                 symbol=symbol,
