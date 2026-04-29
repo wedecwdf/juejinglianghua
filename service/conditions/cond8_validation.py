@@ -1,7 +1,8 @@
 # service/conditions/cond8_validation.py
 # -*- coding: utf-8 -*-
 """
-条件8：系统状态检查层、业务规则校验层、数据获取层，order_ledger 必须注入。
+条件8：系统状态检查、业务规则校验、数据获取。
+所有配置参数均从 Condition8Config 获取，不再依赖全局常量。
 """
 from __future__ import annotations
 import logging
@@ -9,11 +10,7 @@ import time
 from typing import Dict, Any
 from domain.contexts.condition8 import Condition8Context
 from domain.stores.base import AbstractOrderLedger
-from config.strategy import (
-    CONDITION8_ENABLED,
-    MAX_CONDITION8_TRADE_TIMES,
-    CONDITION8_PRICE_BAND_ENABLED,
-)
+from config.strategy.config_objects import Condition8Config
 from .utils import (
     _get_condition8_thresholds,
     _get_stock_frequency_type,
@@ -21,16 +18,18 @@ from .utils import (
 
 logger = logging.getLogger(__name__)
 
-def _check_system_state(order_ledger: AbstractOrderLedger, symbol: str, context: Condition8Context,
-                        current_price: float) -> bool:
-    if not CONDITION8_ENABLED:
+
+def _check_system_state(order_ledger: AbstractOrderLedger, symbol: str,
+                        context: Condition8Context, current_price: float,
+                        config: Condition8Config) -> bool:
+    if not config.enabled:
         return False
     if order_ledger.is_cancelling(symbol):
         logger.info('【撤单保护】%s 正在撤单中，跳过条件8检查', symbol)
         return False
 
     if order_ledger.is_condition8_sleeping():
-        if CONDITION8_PRICE_BAND_ENABLED:
+        if config.price_band_enabled:
             upper = context.condition8_upper_band
             lower = context.condition8_lower_band
             if upper is not None and lower is not None:
@@ -46,16 +45,17 @@ def _check_system_state(order_ledger: AbstractOrderLedger, symbol: str, context:
             context.condition8_sleeping = False
     return True
 
+
 def _validate_business_rules(context: Condition8Context, base_price: float,
-                             current_price: float) -> bool:
-    if context.condition8_trade_times >= MAX_CONDITION8_TRADE_TIMES:
+                             current_price: float, config: Condition8Config) -> bool:
+    if context.condition8_trade_times >= config.max_trade_times:
         return False
     now_sec = time.time()
     last_trigger = context.condition8_last_trigger_time
     if last_trigger and (now_sec - last_trigger) < context.condition8_cooldown_period:
         return False
     if not context.condition8_sleeping:
-        if CONDITION8_PRICE_BAND_ENABLED:
+        if config.price_band_enabled:
             upper = context.condition8_upper_band
             lower = context.condition8_lower_band
             if upper is not None and lower is not None:
@@ -68,8 +68,10 @@ def _validate_business_rules(context: Condition8Context, base_price: float,
                     return False
     return True
 
-def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str, context: Condition8Context,
-                current_price: float) -> Dict[str, Any]:
+
+def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str,
+                context: Condition8Context, current_price: float,
+                config: Condition8Config) -> Dict[str, Any]:
     if order_ledger.pop_cancelled(symbol):
         ref_price = context.condition8_reference_price
         logger.info('【撤单重新判断】%s 使用基准价作为参考价: %.4f', symbol, ref_price)
@@ -78,7 +80,7 @@ def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str, context: Conditi
         if ref_price is None or ref_price <= 0:
             ref_price = 0.0
 
-    rise_threshold, decline_threshold = _get_condition8_thresholds(symbol)
+    rise_threshold, decline_threshold = _get_condition8_thresholds(symbol, config)
     stock_type = _get_stock_frequency_type(symbol)
     type_desc = "高频" if stock_type == 'high' else ("低频" if stock_type == 'low' else "默认")
 

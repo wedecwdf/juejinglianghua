@@ -1,32 +1,26 @@
 # service/conditions/utils.py
 # -*- coding: utf-8 -*-
 """
-条件判断公共辅助函数，所有 print 替换为模块级 logger。
+条件判断公共辅助函数
+所有条件8相关阈值和间隔函数增加 config 参数，优先使用配置对象。
 """
 from __future__ import annotations
-import logging
 from typing import Optional, Dict, Any, Tuple, TYPE_CHECKING
 
 from config.strategy import (
     ENABLE_HIGH_LOW_FREQUENCY_CLASSIFICATION,
     HIGH_FREQUENCY_STOCKS,
     LOW_FREQUENCY_STOCKS,
-    CONDITION8_HIGH_FREQ_RISE_PERCENT,
-    CONDITION8_HIGH_FREQ_DECLINE_PERCENT,
-    CONDITION8_LOW_FREQ_RISE_PERCENT,
-    CONDITION8_LOW_FREQ_DECLINE_PERCENT,
-    CONDITION8_RISE_PERCENT,
-    CONDITION8_DECLINE_PERCENT,
-    CONDITION8_GRID_INTERVAL_PERCENT,
-    CONDITION8_HIGH_FREQ_GRID_INTERVAL,
-    CONDITION8_LOW_FREQ_GRID_INTERVAL,
-    CONDITION8_MAX_MULTIPLE_LIMIT,
 )
+# 向后兼容保留全局常量引用，但实际使用时若 config 提供则忽略
+from config.strategy import CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT
+from config.strategy import CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT
+from config.strategy import CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT
+from config.strategy import CONDITION8_GRID_INTERVAL_PERCENT
+from config.strategy import CONDITION8_MAX_MULTIPLE_LIMIT
 
 if TYPE_CHECKING:
     from config.strategy.config_objects import Condition2Config, Condition9Config
-
-logger = logging.getLogger(__name__)
 
 
 def _sell_qty_by_percent(available_position: int, percent: float) -> int:
@@ -45,25 +39,29 @@ def _get_stock_frequency_type(symbol: str) -> str:
         return 'default'
 
 
-def _get_condition8_thresholds(symbol: str) -> Tuple[float, float]:
-    stock_type = _get_stock_frequency_type(symbol)
-    if stock_type == 'high':
-        return CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT
-    elif stock_type == 'low':
-        return CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT
+def _get_condition8_thresholds(symbol: str, config: Optional['Condition8Config'] = None) -> Tuple[float, float]:
+    if config is not None:
+        stock_type = _get_stock_frequency_type(symbol)
+        if stock_type == 'high':
+            return config.high_freq_rise, config.high_freq_decline
+        elif stock_type == 'low':
+            return config.low_freq_rise, config.low_freq_decline
+        else:
+            return config.rise_percent, config.decline_percent
     else:
-        return CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT
+        stock_type = _get_stock_frequency_type(symbol)
+        if stock_type == 'high':
+            return CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT
+        elif stock_type == 'low':
+            return CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT
+        else:
+            return CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT
 
 
-def _get_grid_interval_percent(symbol: str) -> float:
-    if not ENABLE_HIGH_LOW_FREQUENCY_CLASSIFICATION:
-        return CONDITION8_GRID_INTERVAL_PERCENT
-    if symbol in HIGH_FREQUENCY_STOCKS:
-        return CONDITION8_HIGH_FREQ_GRID_INTERVAL
-    elif symbol in LOW_FREQUENCY_STOCKS:
-        return CONDITION8_LOW_FREQ_GRID_INTERVAL
-    else:
-        return CONDITION8_GRID_INTERVAL_PERCENT
+def _get_grid_interval_percent(symbol: str, config: Optional['Condition8Config'] = None) -> float:
+    if config is not None:
+        return config.grid_interval_percent
+    return CONDITION8_GRID_INTERVAL_PERCENT
 
 
 def _calculate_skipped_grids(last_trigger_price: float, current_price: float,
@@ -122,10 +120,9 @@ def _check_dynamic_profit_core(
             set_triggered(context, True)
             set_high_price(context, current_price)
             set_profit_line(context, current_price * (1 - config.decline_percent))
-            logger.info(
-                f'【{condition_name}动态止盈启动】基准价：{base_price:.4f} '
-                f'当前涨跌幅：{increase*100:.2f}% 初始止盈线：{get_profit_line(context):.4f}'
-            )
+            print(f'{getattr(context, "symbol", "?")}【{condition_name}动态止盈启动已启动】，'
+                  f'初始基准价：{base_price:.4f} 当前涨跌幅：{increase*100:.2f}% '
+                  f'初始止盈线：{get_profit_line(context):.4f}')
         return None
 
     if not triggered:
@@ -137,7 +134,7 @@ def _check_dynamic_profit_core(
         set_high_price(context, current_price)
         new_profit_line = current_price * (1 - config.decline_percent)
         set_profit_line(context, new_profit_line)
-        logger.info(f'【{condition_name}动态止盈】更新止盈线：{new_profit_line:.4f}')
+        print(f'【{condition_name}动态止盈】更新动态止盈线：{new_profit_line:.4f}')
         return None
 
     # 阶段三：检查跌破止盈线

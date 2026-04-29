@@ -1,4 +1,10 @@
 # domain/conditions/condition2.py
+# -*- coding: utf-8 -*-
+"""
+条件2动态止盈条件包装器，通过配置注入上下文。
+"""
+from __future__ import annotations
+from typing import Optional
 from domain.decisions import Condition, Decision, DecisionType
 from service.condition_service import check_condition2
 from service.order_executor import sell_qty_by_percent
@@ -51,7 +57,6 @@ class Condition2Decision(Decision):
         context2.dynamic_profit_sell_times += 1
         ctx.session_registry.increment_total_sell_times(self.symbol, 1)
         context2.condition2_triggered_and_sold = True
-        # 清理条件9（保留原逻辑）
         try:
             context9 = ctx.context_store.get('condition9', self.symbol)
             context9.condition9_triggered = False
