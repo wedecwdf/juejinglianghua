@@ -1,19 +1,16 @@
 # service/order_cancel_service.py
 # -*- coding: utf-8 -*-
 """
-自动撤单服务，使用拆分后的小接口。
+自动撤单服务，撤单参数从环境变量读取，不再依赖 config.strategy。
 """
 from __future__ import annotations
 import logging
+import os
 import threading
 import time
 from datetime import datetime
 from typing import List, Dict, Any
 from gm.api import get_unfinished_orders, order_cancel as gm_order_cancel
-from config.strategy import (
-    AUTO_CANCEL_ENABLED, AUTO_CANCEL_TIMEOUT, AUTO_CANCEL_CHECK_INTERVAL,
-    CONDITION8_CANCEL_TIMEOUT,
-)
 from config.account import ACCOUNT_ID
 from repository.mail_sender import send_email
 from domain.stores.order_interfaces import OrderRepository, CancelLockManager
@@ -21,8 +18,16 @@ from domain.stores.base import AbstractSessionRegistry
 from domain.stores.context_store import ContextStore
 
 logger = logging.getLogger(__name__)
+
+# 撤单参数直接从环境变量读取
+AUTO_CANCEL_ENABLED: bool = os.getenv('AUTO_CANCEL_ENABLED', 'true').lower() == 'true'
+AUTO_CANCEL_TIMEOUT: int = int(os.getenv('AUTO_CANCEL_TIMEOUT', '5'))
+AUTO_CANCEL_CHECK_INTERVAL: int = int(os.getenv('AUTO_CANCEL_CHECK_INTERVAL', '5'))
+CONDITION8_CANCEL_TIMEOUT: int = int(os.getenv('CONDITION8_CANCEL_TIMEOUT', '6000'))
+
 _canceling_now: set[str] = set()
 _canceling_lock = threading.Lock()
+
 
 def _cancel_timeout_orders(order_repo: OrderRepository,
                            cancel_lock_manager: CancelLockManager,
@@ -119,10 +124,6 @@ def _cancel_timeout_orders(order_repo: OrderRepository,
                 symbol = item["symbol"]
                 order_repo.remove_pending_order(cl_ord_id)
 
-                if item.get("is_condition8"):
-                    # 条件8状态清理已通过 condition8_tracker 完成，此处只需撤销锁
-                    pass
-
                 if item.get("is_condition2") or item.get("is_condition9"):
                     try:
                         ctx2 = context_store.get('condition2', symbol)
@@ -155,6 +156,7 @@ def _cancel_timeout_orders(order_repo: OrderRepository,
         logger.exception('自动撤单异常')
         send_email("自动撤单异常", str(e))
 
+
 def _loop(order_repo: OrderRepository,
           cancel_lock_manager: CancelLockManager,
           session_registry: AbstractSessionRegistry,
@@ -164,8 +166,8 @@ def _loop(order_repo: OrderRepository,
             _cancel_timeout_orders(order_repo, cancel_lock_manager, session_registry, context_store)
         time.sleep(AUTO_CANCEL_CHECK_INTERVAL)
 
+
 def start_auto_cancel_thread(order_ledger, session_registry, context_store):
-    # order_ledger 是完整的 OrderLedgerImpl，我们提取所需接口
     if not AUTO_CANCEL_ENABLED:
         return
     t = threading.Thread(target=_loop, args=(

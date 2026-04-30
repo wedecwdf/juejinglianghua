@@ -1,30 +1,33 @@
 # service/board/break_service.py
 # -*- coding: utf-8 -*-
 """
-断板机制服务（静态止损）
+断板机制服务（静态止损），使用模块级配置。
 """
 from __future__ import annotations
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
 from domain.board import BoardStatus, BoardBreakStatus
-from config.strategy import (
-    BOARD_BREAK_ENABLED,
-    BOARD_BREAK_STATIC_STOP_LOSS_PERCENT,
-    BOARD_BREAK_DYNAMIC_PROFIT_DECLINE_PERCENT,
-    BOARD_BREAK_SELL_PERCENT,
-    BOARD_BREAK_PRICE_OFFSET
-)
+from config.strategy.config_objects import BoardConfig
 from .state_machine import is_limit_up_price
 
 logger = logging.getLogger(__name__)
+
+_board_config = BoardConfig()
+
+
+def set_board_config(config: BoardConfig):
+    global _board_config
+    _board_config = config
+
 
 def handle_board_break_mechanism(symbol: str, current_price: float,
                                  prev_close: float, tick_time: datetime,
                                  board_status: BoardStatus,
                                  board_break_status: BoardBreakStatus,
                                  available_position: int) -> Optional[int]:
-    if not BOARD_BREAK_ENABLED:
+    config = _board_config
+    if not config.board_break_enabled:
         return None
     if board_break_status.sold:
         return None
@@ -54,23 +57,23 @@ def handle_board_break_mechanism(symbol: str, current_price: float,
         board_break_status.board_break_date = tick_time.date()
         board_break_status.prev_effective_sealed_date = last_effective
         board_break_status.first_board_close_price = board_status.first_board_close_price
-        static_stop_loss_price = prev_close * (1 - BOARD_BREAK_STATIC_STOP_LOSS_PERCENT)
+        static_stop_loss_price = prev_close * (1 - config.board_break_static_stop_loss_percent)
         board_break_status.static_stop_loss_price = static_stop_loss_price
         board_break_status.static_stop_loss_activated = True
         board_break_status.dynamic_profit_activated = True
         board_break_status.dynamic_profit_high_price = current_price
         board_break_status.dynamic_profit_line = current_price * (
-            1 - BOARD_BREAK_DYNAMIC_PROFIT_DECLINE_PERCENT)
+            1 - config.board_break_dynamic_profit_decline)
         logger.info("【断板触发】%s 静态止损和动态止盈同时激活", symbol)
 
     if current_price > board_break_status.dynamic_profit_high_price:
         board_break_status.dynamic_profit_high_price = current_price
         board_break_status.dynamic_profit_line = current_price * (
-            1 - BOARD_BREAK_DYNAMIC_PROFIT_DECLINE_PERCENT)
+            1 - config.board_break_dynamic_profit_decline)
 
-    if current_price <= board_break_status.static_stop_loss_price + BOARD_BREAK_PRICE_OFFSET:
+    if current_price <= board_break_status.static_stop_loss_price + config.board_break_static_price_offset:
         if not board_break_status.sold:
-            sell_qty = int(available_position * BOARD_BREAK_SELL_PERCENT)
+            sell_qty = int(available_position * config.board_break_sell_percent)
             sell_qty = (sell_qty // 100) * 100
             if sell_qty > 0:
                 board_break_status.sold = True
@@ -80,7 +83,7 @@ def handle_board_break_mechanism(symbol: str, current_price: float,
     if (board_break_status.dynamic_profit_activated and
             current_price <= board_break_status.dynamic_profit_line):
         if not board_break_status.sold:
-            sell_qty = int(available_position * BOARD_BREAK_SELL_PERCENT)
+            sell_qty = int(available_position * config.board_break_sell_percent)
             sell_qty = (sell_qty // 100) * 100
             if sell_qty > 0:
                 board_break_status.sold = True

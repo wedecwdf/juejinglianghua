@@ -1,33 +1,32 @@
 # service/pyramid_service.py
 # -*- coding: utf-8 -*-
 """
-动态回调加仓服务，store 必须由调用方注入。
+动态回调加仓服务，移除对旧全局常量的依赖，改用配置对象。
 """
 from __future__ import annotations
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from domain.base_price import CallbackAdditionTask
-from config.strategy import (
-    CALLBACK_ADDITION_ENABLED,
-    CALLBACK_ON_CONDITION2,
-    CALLBACK_ON_CONDITION9,
-    CALLBACK_ON_CONDITION8,
-    MIN_TRADE_UNIT
-)
+from config.strategy.config_objects import CallbackAddConfig
 from domain.stores.base import AbstractCallbackTaskStore
 
 logger = logging.getLogger(__name__)
 
+# 使用配置默认值替代旧常量
+_callback_config = CallbackAddConfig()
+
 VALID_CALLBACK_CONDITIONS = {
-    'condition2': CALLBACK_ON_CONDITION2,
-    'condition9': CALLBACK_ON_CONDITION9,
-    'condition8': CALLBACK_ON_CONDITION8,
-    'condition8_pyramid_profit': CALLBACK_ON_CONDITION8,
+    'condition2': _callback_config.on_condition2,
+    'condition9': _callback_config.on_condition9,
+    'condition8': _callback_config.on_condition8,
+    'condition8_pyramid_profit': _callback_config.on_condition8,
 }
 
-def should_create_callback_task(condition_type: str) -> bool:
-    if not CALLBACK_ADDITION_ENABLED:
+def should_create_callback_task(condition_type: str, config: CallbackAddConfig = None) -> bool:
+    if config is None:
+        config = _callback_config
+    if not config.enabled:
         return False
     if condition_type in ['board_dynamic_profit', 'board_break', 'board_break_static', 'board_break_dynamic']:
         return False
@@ -35,8 +34,11 @@ def should_create_callback_task(condition_type: str) -> bool:
 
 def add_callback_task(symbol: str, sell_price: float, prev_close: float,
                       sell_amount: float, sell_quantity: int, condition_type: str,
-                      store: AbstractCallbackTaskStore) -> Optional[CallbackAdditionTask]:
-    if not should_create_callback_task(condition_type):
+                      store: AbstractCallbackTaskStore,
+                      config: CallbackAddConfig = None) -> Optional[CallbackAdditionTask]:
+    if config is None:
+        config = _callback_config
+    if not should_create_callback_task(condition_type, config):
         return None
     if prev_close <= 0 or sell_price <= 0 or sell_amount <= 0:
         logger.info("【动态回调加仓】%s 参数无效，跳过任务创建", symbol)
@@ -57,10 +59,10 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
         condition_type=condition_type
     )
 
-    if task.buy_quantity < MIN_TRADE_UNIT:
+    if task.buy_quantity < config.min_trade_unit:
         logger.info("【动态回调加仓】%s 折算股数%d低于最小单位%d，任务自动终止。"
                      "卖出金额=%.2f, 触发价=%.4f",
-                     symbol, task.buy_quantity, MIN_TRADE_UNIT, sell_amount, task.trigger_price)
+                     symbol, task.buy_quantity, config.min_trade_unit, sell_amount, task.trigger_price)
         task.is_active = False
 
     store.set_task(symbol, task.to_dict())
@@ -78,7 +80,7 @@ def add_callback_task(symbol: str, sell_price: float, prev_close: float,
 
 def check_callback_strategy(symbol: str, current_price: float,
                             store: AbstractCallbackTaskStore) -> Optional[Dict[str, Any]]:
-    if not CALLBACK_ADDITION_ENABLED:
+    if not _callback_config.enabled:
         return None
 
     task_data = store.get_task(symbol)

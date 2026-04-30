@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 纯业务逻辑，不依赖 GM Context
-清理后：仅导出条件检查函数和订单执行等核心接口。
 """
 from .indicator_service import calculate_indicators
 from .pyramid_service import (
@@ -19,6 +18,7 @@ from .board_service import (
     handle_dynamic_profit_on_board_break
 )
 from .day_adjust_service import (
+    set_config as set_day_adjust_config,
     check_dynamic_profit_next_day_adjustment,
     initialize_next_day_adjustment,
     update_dynamic_profit_high_lines,
@@ -32,7 +32,6 @@ from .condition_service import (
     check_condition7,
     check_condition8,
     check_condition9,
-    check_pyramid_profit,
 )
 from .order_executor import place_sell, place_buy, sell_qty_by_percent
 from .tick_data_service import update_day_data, refresh_indicators, print_tick_snapshot

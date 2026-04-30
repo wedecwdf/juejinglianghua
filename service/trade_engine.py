@@ -1,18 +1,21 @@
 # service/trade_engine.py
 # -*- coding: utf-8 -*-
 """
-交易条件执行引擎 - 最终版，正确传递 TickContext 给 apply。
+交易条件执行引擎 - 最终版，不再依赖 config.strategy 旧常量。
 """
 from __future__ import annotations
 import logging
+import os
 from datetime import datetime
 from domain.day_data import DayData
 from domain.contexts.tick_context import TickContext
 from domain.decisions import DecisionArbiter, Decision
-from config.strategy import MAX_TOTAL_SELL_TIMES
 from service.order_executor import place_sell, place_buy
 
 logger = logging.getLogger(__name__)
+
+# 最大总卖出次数（可后续移入配置对象）
+MAX_TOTAL_SELL_TIMES: int = int(os.getenv('MAX_TOTAL_SELL_TIMES', '100'))
 
 
 def _execute_decision(decision: Decision,

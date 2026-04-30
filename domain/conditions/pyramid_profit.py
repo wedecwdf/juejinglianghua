@@ -1,6 +1,10 @@
 # domain/conditions/pyramid_profit.py
+# -*- coding: utf-8 -*-
+"""
+金字塔止盈条件包装器，使用配置对象。
+"""
 from domain.decisions import Condition, Decision, DecisionType
-from service.conditions import check_pyramid_profit
+from service.conditions.pyramid_profit import check_pyramid_profit
 
 
 class PyramidProfitCondition(Condition):
@@ -11,7 +15,11 @@ class PyramidProfitCondition(Condition):
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
         context = ctx.context_store.get('pyramid', symbol,
                                         factory=lambda: self._create_context(base_price))
-        res = check_pyramid_profit(symbol, context, current_price, available_position)
+        res = check_pyramid_profit(
+            symbol, context, current_price, available_position,
+            ctx.config.pyramid,
+            ctx.config.condition8
+        )
         if res:
             return PyramidProfitDecision(
                 symbol=symbol,

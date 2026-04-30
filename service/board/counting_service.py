@@ -1,48 +1,47 @@
 # service/board/counting_service.py
 # -*- coding: utf-8 -*-
 """
-板数计数服务
-所有 print 替换为 logger。
+板数计数服务，参数通过 add_config 注入。
 """
 from __future__ import annotations
 import logging
 from datetime import datetime, date
 from typing import Optional
 from domain.board import BoardStatus, BoardCountData, BoardBreakState
-from config.strategy import (
-    BOARD_COUNTING_ENABLED,
-    MIN_SEALED_DURATION,
-    MAX_OPEN_DURATION,
-    BOARD_BREAK_STAGE1_ENABLED,
-    BOARD_BREAK_STAGE2_ENABLED,
-    DYNAMIC_PROFIT_ON_BOARD_BREAK_ENABLED,
-    BOARD_BREAK_DYNAMIC_PROFIT_DECLINE_PERCENT
-)
+from config.strategy.config_objects import BoardConfig
 from .state_machine import (
-    BoardBreakContext,
-    BoardBreakStateFactory,
     get_limit_up_percent,
     is_limit_up_price,
-    _ensure_datetime
+    _ensure_datetime,
 )
 
 logger = logging.getLogger(__name__)
+
+# 模块级配置，由引擎在初始化时注入
+_board_config = BoardConfig()
+
+
+def set_board_config(config: BoardConfig):
+    global _board_config
+    _board_config = config
+
 
 def handle_board_counting(symbol: str, current_price: float,
                           prev_close: float, tick_time: datetime,
                           board_status: BoardStatus,
                           board_count_data: Optional[BoardCountData]) -> Optional[BoardCountData]:
-    if not BOARD_COUNTING_ENABLED or prev_close <= 0:
+    config = _board_config
+    if not config.board_counting_enabled or prev_close <= 0:
         return board_count_data
 
-    limit_up_percent = get_limit_up_percent(symbol)
+    limit_up_percent = get_limit_up_percent(symbol, config)
     limit_up_price = round(prev_close * (1 + limit_up_percent), 2)
     board_status.limit_up_price = limit_up_price
     board_status.prev_close = prev_close
 
     current_state = board_status.get_break_state()
 
-    if is_limit_up_price(current_price, limit_up_price, prev_close):
+    if is_limit_up_price(current_price, limit_up_price, prev_close, config):
         # 涨停（封板）逻辑
         if board_status.is_opened:
             board_status.is_opened = False
@@ -73,7 +72,7 @@ def handle_board_counting(symbol: str, current_price: float,
             if tick_time.date() == last_date:
                 if not board_status.effective_sealed and board_status.sealed_start_time:
                     sealed_duration = (tick_time - board_status.sealed_start_time).total_seconds() / 60
-                    if sealed_duration >= MIN_SEALED_DURATION:
+                    if sealed_duration >= config.min_sealed_duration:
                         board_status.effective_sealed = True
                         board_status.today_effective_sealed = True
                         board_status.last_effective_sealed_date = tick_time.date()
@@ -101,21 +100,21 @@ def handle_board_counting(symbol: str, current_price: float,
             board_status.is_opened = True
             board_status.opened_start_time = tick_time
             board_status.is_sealed = False
-            if BOARD_BREAK_STAGE1_ENABLED and current_state == BoardBreakState.SEALED:
+            if config.stage1_enabled and current_state == BoardBreakState.SEALED:
                 board_status.set_break_state(BoardBreakState.STAGE1_MONITORING)
                 board_status.board_break_start_time = tick_time
                 locked_base = board_status.last_effective_limit_up_price
                 board_status.board_break_dynamic_profit_line = locked_base * (
-                    1 - BOARD_BREAK_DYNAMIC_PROFIT_DECLINE_PERCENT)
+                    1 - config.dynamic_profit_decline_percent)
                 logger.info("【状态机：SEALED->STAGE1】%s 首次开板，阶段①激活，"
                              "基准价:%.4f，止盈线:%.4f",
                              symbol, locked_base, board_status.board_break_dynamic_profit_line)
         else:
-            if BOARD_BREAK_STAGE2_ENABLED and current_state == BoardBreakState.STAGE1_MONITORING:
+            if config.stage2_enabled and current_state == BoardBreakState.STAGE1_MONITORING:
                 opened_start = _ensure_datetime(board_status.opened_start_time)
                 if opened_start is not None:
                     opened_duration = (tick_time - opened_start).total_seconds() / 60
-                    if opened_duration >= MAX_OPEN_DURATION:
+                    if opened_duration >= config.max_open_duration:
                         if board_status.get_break_state() == BoardBreakState.STAGE1_MONITORING:
                             board_status.set_break_state(BoardBreakState.STAGE2_TAKEOVER)
                             logger.info("【状态机：STAGE1->STAGE2】%s "

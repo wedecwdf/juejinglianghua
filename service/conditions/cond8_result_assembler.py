@@ -1,9 +1,10 @@
 # service/conditions/cond8_result_assembler.py
 # -*- coding: utf-8 -*-
-"""条件8返回数据组装"""
+"""条件8返回数据组装，通过 config 获取网格间隔"""
 from __future__ import annotations
 from typing import Dict, Any
 from domain.contexts.condition8 import Condition8Context
+from config.strategy.config_objects import Condition8Config
 from .utils import _get_grid_interval_percent
 
 
@@ -12,7 +13,8 @@ def _assemble_return_data(symbol: str, context: Condition8Context, current_price
                           base_quantity: int, actual_multiple: int,
                           skipped_grids: int, hit_limit: bool,
                           rise_threshold: float, decline_threshold: float,
-                          stock_type: str, type_desc: str, reason: str) -> Dict[str, Any]:
+                          stock_type: str, type_desc: str, reason: str,
+                          config: Condition8Config) -> Dict[str, Any]:
     is_multiple_order = actual_multiple > 1
     last_trigger_for_meta = context.condition8_last_trigger_price
     if last_trigger_for_meta is None or last_trigger_for_meta <= 0:
@@ -40,7 +42,7 @@ def _assemble_return_data(symbol: str, context: Condition8Context, current_price
                 'last_trigger_price': last_trigger_for_meta,
                 'current_price': current_price,
                 'skipped_grids': skipped_grids,
-                'grid_interval_percent': _get_grid_interval_percent(symbol),
+                'grid_interval_percent': _get_grid_interval_percent(symbol, config),
                 'base_quantity': base_quantity,
                 'actual_multiple': actual_multiple,
                 'final_quantity': quantity,

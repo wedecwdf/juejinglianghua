@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 策略配置数据类，所有策略参数均收敛于此，支持环境变量覆盖。
-配置验证逻辑在 load_strategy_config 中统一执行。
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
@@ -95,6 +94,43 @@ class CallbackAddConfig:
     buy_price_offset: float = 0.01
 
 @dataclass(frozen=True)
+class BoardConfig:
+    board_counting_enabled: bool = True
+    main_board_limit_up: float = 0.10
+    gem_board_limit_up: float = 0.20
+    st_board_limit_up: float = 0.05
+    bse_board_limit_up: float = 0.30
+    limit_up_tolerance: float = 0.005
+    min_sealed_duration: int = 30
+    max_open_duration: int = 30
+    board_break_sell_percent: float = 0.7
+    board_break_price_offset: float = 0.02
+    dynamic_profit_on_break_enabled: bool = True
+    dynamic_profit_sealed_sell_percent: float = 0.5
+    dynamic_profit_break_line_sell_percent: float = 0.8
+    dynamic_profit_no_action_sell_percent: float = 0.6
+    dynamic_profit_decline_percent: float = 0.02
+    no_action_sell_time: str = "14:55"
+    dynamic_profit_price_offset: float = 0.01
+    stage1_enabled: bool = True
+    stage2_enabled: bool = True
+    board_break_enabled: bool = True
+    board_break_low_open_threshold: float = 0.04
+    board_break_static_stop_loss_percent: float = 0.05
+    board_break_dynamic_profit_decline: float = 0.03
+    board_break_static_price_offset: float = 0.05
+
+@dataclass(frozen=True)
+class EntryConfig:
+    stock_source: str = 'position'
+    manual_symbols: List[str] = field(default_factory=list)
+    manual_symbols_enabled: bool = False
+    sleep_mode: bool = True
+    account_data_export_enabled: bool = True
+    account_data_export_interval: int = 5
+    account_data_export_dir: str = 'account_data'
+
+@dataclass(frozen=True)
 class StrategyConfig:
     condition2: Condition2Config = field(default_factory=Condition2Config)
     condition9: Condition9Config = field(default_factory=Condition9Config)
@@ -102,6 +138,8 @@ class StrategyConfig:
     ma: MaTradingConfig = field(default_factory=MaTradingConfig)
     pyramid: PyramidProfitConfig = field(default_factory=PyramidProfitConfig)
     callback: CallbackAddConfig = field(default_factory=CallbackAddConfig)
+    board: BoardConfig = field(default_factory=BoardConfig)
+    entry: EntryConfig = field(default_factory=EntryConfig)
     enabled_conditions: List[str] = field(default_factory=lambda: [
         'next_day_stop_loss',
         'condition2',
@@ -183,11 +221,26 @@ def load_strategy_config() -> StrategyConfig:
         on_condition8=os.getenv('CALLBACK_ON_CONDITION8', 'true').lower() == 'true',
         buy_price_offset=float(os.getenv('CALLBACK_BUY_PRICE_OFFSET', 0.01)),
     )
+    board = BoardConfig(
+        board_counting_enabled=os.getenv('BOARD_COUNTING_ENABLED', 'true').lower() == 'true',
+        dynamic_profit_on_break_enabled=os.getenv('DYNAMIC_PROFIT_ON_BOARD_BREAK_ENABLED', 'true').lower() == 'true',
+        board_break_enabled=os.getenv('BOARD_BREAK_ENABLED', 'true').lower() == 'true',
+        stage1_enabled=os.getenv('BOARD_BREAK_STAGE1_ENABLED', 'true').lower() == 'true',
+        stage2_enabled=os.getenv('BOARD_BREAK_STAGE2_ENABLED', 'true').lower() == 'true',
+    )
+    entry = EntryConfig(
+        stock_source=os.getenv('SYMBOLS_SOURCE', 'position'),
+        manual_symbols=_parse_env_list(os.getenv('MANUAL_SYMBOLS', '')),
+        manual_symbols_enabled=os.getenv('MANUAL_SYMBOLS_ENABLED', 'false').lower() == 'true',
+        sleep_mode=os.getenv('ENABLE_SLEEP_MODE', 'true').lower() == 'true',
+        account_data_export_enabled=os.getenv('ACCOUNT_DATA_EXPORT_ENABLED', 'true').lower() == 'true',
+        account_data_export_interval=int(os.getenv('ACCOUNT_DATA_EXPORT_INTERVAL', 5)),
+        account_data_export_dir=os.getenv('ACCOUNT_DATA_EXPORT_DIR', 'account_data'),
+    )
     enabled_str = os.getenv('ENABLED_CONDITIONS', '')
     if enabled_str:
         enabled_conditions = [s.strip() for s in enabled_str.split(',') if s.strip()]
     else:
-        # 使用类默认值，直接在这里硬编码，避免引用 default_factory
         enabled_conditions = [
             'next_day_stop_loss',
             'condition2',
@@ -206,5 +259,7 @@ def load_strategy_config() -> StrategyConfig:
         ma=ma,
         pyramid=pyramid,
         callback=callback,
+        board=board,
+        entry=entry,
         enabled_conditions=enabled_conditions,
     )

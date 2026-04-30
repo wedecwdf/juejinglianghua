@@ -1,22 +1,15 @@
 # service/order_executor.py
 # -*- coding: utf-8 -*-
 """
-订单执行服务，延迟导入 adapter 避免循环依赖。
+订单执行服务，移除对旧常量的依赖。
 """
 from __future__ import annotations
 import logging
 from datetime import datetime
 from typing import Dict, Any
 import pytz
+from adapter.gm_adapter import place_order
 from config.account import ACCOUNT_ID
-from config.strategy import (
-    CONDITION8_SELL_QUANTITY, CONDITION8_BUY_QUANTITY,
-    CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT,
-    CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT,
-    CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT,
-    HIGH_FREQUENCY_STOCKS, LOW_FREQUENCY_STOCKS,
-    CONDITION8_MULTIPLE_ORDER_ENABLED,
-)
 from domain.stores.base import AbstractOrderLedger, AbstractSessionRegistry
 from domain.stores.context_store import ContextStore
 
@@ -52,13 +45,13 @@ def _build_order_data(symbol: str, price: float, quantity: int,
     if trigger_data and trigger_data.get("threshold_info"):
         threshold_info = trigger_data.get("threshold_info", {})
         data["stock_type"] = threshold_info.get("stock_type", "default")
-        data["rise_threshold_used"] = threshold_info.get("rise_threshold_used", CONDITION8_RISE_PERCENT)
-        data["decline_threshold_used"] = threshold_info.get("decline_threshold_used", CONDITION8_DECLINE_PERCENT)
+        data["rise_threshold_used"] = threshold_info.get("rise_threshold_used", 0.0)
+        data["decline_threshold_used"] = threshold_info.get("decline_threshold_used", 0.0)
 
     return data
 
 
-def _log_condition8_details(symbol: str, price: float, side: str, trigger_data: Dict[str, Any]):
+def _log_condition8_details(symbol: str, side: str, trigger_data: Dict[str, Any]):
     """记录条件8相关的倍数委托和独立阈值日志"""
     if trigger_data and trigger_data.get("is_multiple_order"):
         mult_info = trigger_data.get("multiple_order_info", {})
@@ -84,7 +77,6 @@ def place_sell(symbol: str, price: float, quantity: int,
                order_ledger: AbstractOrderLedger,
                session_registry: AbstractSessionRegistry,
                context_store: ContextStore = None) -> None:
-    from adapter.gm_adapter import place_order   # 延迟导入，避免循环
     cl_ord_id = place_order(symbol, price, quantity, side=2, position_effect=2, account=ACCOUNT_ID)
     if not cl_ord_id:
         return
@@ -103,7 +95,7 @@ def place_sell(symbol: str, price: float, quantity: int,
                         symbol, price, current_ref)
         except KeyError:
             pass
-        _log_condition8_details(symbol, price, "卖出", trigger_data)
+        _log_condition8_details(symbol, price, trigger_data)
 
     logger.info("【交易执行】%s 卖出：%d股 @ %.4f，原因：%s", symbol, quantity, price, reason)
 
@@ -113,7 +105,6 @@ def place_buy(symbol: str, price: float, quantity: int,
               order_ledger: AbstractOrderLedger,
               session_registry: AbstractSessionRegistry,
               context_store: ContextStore = None) -> None:
-    from adapter.gm_adapter import place_order   # 延迟导入
     cl_ord_id = place_order(symbol, price, quantity, side=1, position_effect=1, account=ACCOUNT_ID)
     if not cl_ord_id:
         return
@@ -132,7 +123,7 @@ def place_buy(symbol: str, price: float, quantity: int,
                         symbol, price, current_ref)
         except KeyError:
             pass
-        _log_condition8_details(symbol, price, "买入", trigger_data)
+        _log_condition8_details(symbol, price, trigger_data)
 
     logger.info("【交易执行】%s 买入：%d股 @ %.4f，原因：%s", symbol, quantity, price, reason)
 

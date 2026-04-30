@@ -1,32 +1,26 @@
 # service/conditions/pyramid_profit.py
 # -*- coding: utf-8 -*-
-"""金字塔止盈条件检查（独立机制）"""
+"""
+金字塔止盈条件检查（独立机制），所有参数通过配置对象注入。
+"""
 from __future__ import annotations
 from typing import Optional, Dict, Any
 from domain.contexts.pyramid import PyramidContext
-from config.strategy import (
-    PYRAMID_PROFIT_ENABLED,
-    PYRAMID_USER_BASE_PRICE,
-    PYRAMID_HIGH_FREQUENCY,
-    PYRAMID_LOW_FREQUENCY,
-    PYRAMID_DEFAULT,
-    PYRAMID_TOTAL_QUANTITY,
-    PYRAMID_PROFIT_SELL_PRICE_OFFSET,
-    HIGH_FREQUENCY_STOCKS,
-    LOW_FREQUENCY_STOCKS,
-)
+from config.strategy.config_objects import PyramidProfitConfig, Condition8Config
+
 
 def check_pyramid_profit(symbol: str, context: PyramidContext, current_price: float,
-                         available_position: int) -> Optional[Dict[str, Any]]:
-    if not PYRAMID_PROFIT_ENABLED or available_position <= 0:
+                         available_position: int,
+                         pyramid_config: PyramidProfitConfig,
+                         condition8_config: Condition8Config) -> Optional[Dict[str, Any]]:
+    if not pyramid_config.enabled or available_position <= 0:
         return None
 
-    total_qty = PYRAMID_TOTAL_QUANTITY.get(symbol, 0)
+    total_qty = pyramid_config.total_quantity.get(symbol, 0)
     if total_qty <= 0:
         return None
 
-    # 确定基准价
-    custom_base = PYRAMID_USER_BASE_PRICE.get(symbol)
+    custom_base = pyramid_config.user_base_price.get(symbol)
     if custom_base and custom_base > 0:
         base_price = custom_base
     else:
@@ -35,17 +29,18 @@ def check_pyramid_profit(symbol: str, context: PyramidContext, current_price: fl
         return None
 
     price_increase = (current_price - base_price) / base_price
-    if symbol in HIGH_FREQUENCY_STOCKS:
-        params = PYRAMID_HIGH_FREQUENCY
-    elif symbol in LOW_FREQUENCY_STOCKS:
-        params = PYRAMID_LOW_FREQUENCY
+
+    if symbol in condition8_config.high_freq_stocks:
+        levels = pyramid_config.high_freq_levels
+        ratios = pyramid_config.high_freq_ratios
+    elif symbol in condition8_config.low_freq_stocks:
+        levels = pyramid_config.low_freq_levels
+        ratios = pyramid_config.low_freq_ratios
     else:
-        params = PYRAMID_DEFAULT
+        levels = pyramid_config.default_levels
+        ratios = pyramid_config.default_ratios
 
-    levels = params['levels']
-    ratios = params['ratios']
     status = context.pyramid_profit_status
-
     triggered_level = -1
     for i, level in enumerate(levels):
         if price_increase >= level and not status[i]:
@@ -63,7 +58,7 @@ def check_pyramid_profit(symbol: str, context: PyramidContext, current_price: fl
 
     return {
         'reason': f'金字塔止盈第{triggered_level + 1}级（独立机制）',
-        'sell_price_offset': PYRAMID_PROFIT_SELL_PRICE_OFFSET,
+        'sell_price_offset': pyramid_config.sell_price_offset,
         'quantity': sell_qty,
         'trigger_data': {
             'pyramid_level': triggered_level,

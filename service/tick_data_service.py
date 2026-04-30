@@ -1,7 +1,7 @@
 # service/tick_data_service.py
 # -*- coding: utf-8 -*-
 """
-Tick数据处理服务，延迟导入 adapter 避免循环依赖。
+Tick数据处理服务，阈值显示从配置对象获取。
 """
 from __future__ import annotations
 import logging
@@ -11,12 +11,7 @@ from domain.day_data import DayData
 from domain.stores import SessionRegistry
 from domain.stores.context_store import ContextStore
 from service.indicator_service import calculate_indicators
-from config.strategy import (
-    CONDITION8_RISE_PERCENT, CONDITION8_DECLINE_PERCENT,
-    CONDITION8_HIGH_FREQ_RISE_PERCENT, CONDITION8_HIGH_FREQ_DECLINE_PERCENT,
-    CONDITION8_LOW_FREQ_RISE_PERCENT, CONDITION8_LOW_FREQ_DECLINE_PERCENT,
-    HIGH_FREQUENCY_STOCKS, LOW_FREQUENCY_STOCKS
-)
+from config.strategy.config_objects import Condition8Config
 
 logger = logging.getLogger(__name__)
 
@@ -44,14 +39,15 @@ def update_day_data(symbol: str, tick: Dict[str, Any], tick_date: date,
     return day_data
 
 def refresh_indicators(symbol: str, day_data: DayData) -> None:
-    from adapter.gm_adapter import load_history_data   # 延迟导入
+    from adapter.gm_adapter import load_history_data
     df = load_history_data(symbol, day_data.date)
     if df is not None and not df.empty:
         calculate_indicators(df, day_data)
 
 def print_tick_snapshot(symbol: str, current_price: float, day_data: DayData,
                         session_registry: SessionRegistry,
-                        context_store: ContextStore) -> None:
+                        context_store: ContextStore,
+                        condition8_config: Condition8Config) -> None:
     cond8_ref = day_data.base_price
     try:
         ctx8 = context_store.get('condition8', symbol)
@@ -63,14 +59,9 @@ def print_tick_snapshot(symbol: str, current_price: float, day_data: DayData,
 
     increase = (current_price - cond8_ref) / cond8_ref if cond8_ref > 0 else 0
 
-    rise_thr = CONDITION8_RISE_PERCENT
-    decline_thr = CONDITION8_DECLINE_PERCENT
-    if symbol in HIGH_FREQUENCY_STOCKS:
-        rise_thr = CONDITION8_HIGH_FREQ_RISE_PERCENT
-        decline_thr = CONDITION8_HIGH_FREQ_DECLINE_PERCENT
-    elif symbol in LOW_FREQUENCY_STOCKS:
-        rise_thr = CONDITION8_LOW_FREQ_RISE_PERCENT
-        decline_thr = CONDITION8_LOW_FREQ_DECLINE_PERCENT
+    # 从配置对象获取实际阈值
+    from service.conditions.utils import _get_condition8_thresholds
+    rise_thr, decline_thr = _get_condition8_thresholds(symbol, condition8_config)
 
     logger.info(
         "[%s] 条件8基准价=%.2f 当前价=%.2f 条件8上涨阈值=%.2f%% 条件8下跌阈值=%.2f%% 当前涨跌幅=%+.2f%%",

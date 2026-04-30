@@ -1,6 +1,6 @@
 # service/conditions/cond8_buy_handler.py
 # -*- coding: utf-8 -*-
-"""条件8买入逻辑处理，使用 config 参数"""
+"""条件8买入逻辑处理，传递 config 到结果组装"""
 from __future__ import annotations
 import logging
 from typing import Optional, Dict, Any
@@ -36,5 +36,6 @@ def _handle_buy_logic(symbol: str, context: Condition8Context, current_price: fl
         actual_multiple=actual_multiple, skipped_grids=skipped_grids, hit_limit=hit_limit,
         rise_threshold=rise_threshold, decline_threshold=decline_threshold,
         stock_type=stock_type, type_desc=type_desc,
-        reason=f'条件8(下跌触发买入-{type_desc})'
+        reason=f'条件8(下跌触发买入-{type_desc})',
+        config=config,
     )

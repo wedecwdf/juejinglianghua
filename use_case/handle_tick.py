@@ -2,7 +2,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-单 tick 完整流程 - 使用拆分后的小接口，消除上帝对象。
+单 tick 完整流程 - 传递配置对象到快照函数。
 """
 from __future__ import annotations
 import logging
@@ -17,6 +17,7 @@ from domain.contexts.tick_context import TickContext
 beijing_tz = pytz.timezone("Asia/Shanghai")
 logger = logging.getLogger(__name__)
 
+
 def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     symbol = tick["symbol"]
     tick_time = tick["created_at"].astimezone(beijing_tz)
@@ -25,7 +26,6 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     tick_date = tick_time.date()
     current_price = tick["price"]
 
-    # 使用拆分后的小接口
     if ctx.cancel_lock_manager.is_cancelling(symbol):
         logger.info("【撤单保护】%s 正在撤单中，跳过本次 tick 处理", symbol)
         return
@@ -40,7 +40,6 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
             context2.post_cancel_rechecked = False
     except KeyError:
         pass
-
     try:
         context9 = ctx.context_store.get('condition9', symbol)
         if context9 and context9.post_cancel_rechecked:
@@ -48,25 +47,24 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     except KeyError:
         pass
 
-    # 撤单后重新判断标记（通过 cancel_lock_manager 操作）
     if ctx.cancel_lock_manager.pop_cancelled(symbol):
         logger.info("【撤单再判断】%s 上次撤单已清除，立即重新判断条件", symbol)
 
-    # 指标刷新
     refresh_indicators(symbol, day_data)
 
-    # 可用持仓
     from adapter.gm_adapter import get_available_position
     available_position = get_available_position(symbol)
 
     base_price = day_data.base_price
-    print_tick_snapshot(symbol, current_price, day_data, ctx.session_registry, ctx.context_store)
+    # 传入条件8配置对象
+    print_tick_snapshot(symbol, current_price, day_data,
+                        ctx.session_registry, ctx.context_store,
+                        ctx.config.condition8)
 
-    # 执行交易条件（内部已解构 ctx）
+    # 执行交易条件
     execute_conditions(symbol, current_price, tick_time, available_position,
                        day_data, base_price, ctx)
 
-    # 持久化保存（使用拆分接口）
     ctx.order_repo.save()
     ctx.condition_trigger_repo.save()
     ctx.board_repo.save()

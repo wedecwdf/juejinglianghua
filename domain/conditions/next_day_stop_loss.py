@@ -1,6 +1,13 @@
 # domain/conditions/next_day_stop_loss.py
+# -*- coding: utf-8 -*-
+"""
+次日固定止损条件包装器，注入配置。
+"""
 from domain.decisions import Condition, Decision, DecisionType
-from service.day_adjust_service import check_dynamic_profit_next_day_adjustment
+from service.day_adjust_service import (
+    set_config,
+    check_dynamic_profit_next_day_adjustment,
+)
 
 
 class NextDayStopLossCondition(Condition):
@@ -9,6 +16,9 @@ class NextDayStopLossCondition(Condition):
     depends_on = []
 
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
+        # 注入配置
+        set_config(ctx.config.condition2)
+
         adj_ctx = ctx.context_store.get('next_day', symbol,
                                         factory=lambda: self._create_context())
         qty = check_dynamic_profit_next_day_adjustment(adj_ctx, current_price, available_position)

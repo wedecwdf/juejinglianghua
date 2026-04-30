@@ -1,10 +1,12 @@
 # use_case/health_check.py
 # -*- coding: utf-8 -*-
 """
-交易日/时段/休眠判断，无 GM 直接依赖，通过 adapter 获取交易日。
+交易日/时段/休眠判断，无 GM 依赖。
+休眠模式开关从环境变量直接读取，不依赖 config.strategy。
 """
 from __future__ import annotations
 import logging
+import os
 from datetime import datetime, timedelta, time as dt_time, date
 from typing import Optional
 import pytz
@@ -17,10 +19,12 @@ from config.calendar import (
     TRADING_START_TIME,
     ENABLE_TRADING_START_TIME
 )
-from config.strategy import ENABLE_SLEEP_MODE
 
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
+
+# 休眠开关直接从环境变量读取，默认启用
+ENABLE_SLEEP_MODE: bool = os.getenv('ENABLE_SLEEP_MODE', 'true').lower() == 'true'
 
 
 def is_trading_day(check_date: date) -> bool:

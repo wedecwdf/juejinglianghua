@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 炸板动态止盈服务（状态机驱动）
-修改：使用 ContextStore 获取条件上下文，移除对 SessionRegistry 的非法调用。
+使用模块级配置消除旧常量依赖。
 """
 from __future__ import annotations
 import logging
@@ -11,17 +11,25 @@ from typing import Optional
 from domain.board import BoardStatus, BoardBreakState
 from domain.day_data import DayData
 from domain.stores.context_store import ContextStore
-from config.strategy import DYNAMIC_PROFIT_ON_BOARD_BREAK_ENABLED
+from config.strategy.config_objects import BoardConfig
 from .state_machine import BoardBreakContext, BoardBreakStateFactory
 
 logger = logging.getLogger(__name__)
+
+# 模块级配置，由引擎在初始化时注入
+_board_config = BoardConfig()
+
+
+def set_board_config(config: BoardConfig):
+    global _board_config
+    _board_config = config
 
 
 def handle_dynamic_profit_on_board_break(symbol: str, current_price: float,
                                          available_position: int, day_data: DayData,
                                          board_status: BoardStatus,
                                          context_store: ContextStore = None) -> Optional[int]:
-    if not DYNAMIC_PROFIT_ON_BOARD_BREAK_ENABLED:
+    if not _board_config.dynamic_profit_on_break_enabled:
         return None
 
     current_state = board_status.get_break_state()
@@ -31,11 +39,11 @@ def handle_dynamic_profit_on_board_break(symbol: str, current_price: float,
         return None
 
     ctx = BoardBreakContext(symbol, board_status, current_price,
-                            datetime.now(), available_position)
+                            datetime.now(), available_position,
+                            config=_board_config)
     handler = BoardBreakStateFactory.create_state(current_state, ctx)
     result = handler.handle()
 
-    # 炸板卖出后，清理条件2、条件9的监控标志
     if result and result > 0:
         if context_store:
             try:

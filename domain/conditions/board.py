@@ -1,12 +1,14 @@
 # domain/conditions/board.py
 # -*- coding: utf-8 -*-
 """
-板数相关条件包装器：
-- BoardCountingCondition：副作用，更新封板计数
-- BoardBreakSellCondition：炸板卖出决策，使用 ContextStore
+板数相关条件包装器，注入 BoardConfig。
 """
 from domain.decisions import Condition, Decision, DecisionType
 from service.board_service import handle_board_counting, handle_dynamic_profit_on_board_break
+from service.board.state_machine import set_default_board_config
+from service.board.counting_service import set_board_config as set_counting_config
+from service.board.break_service import set_board_config as set_break_config
+from service.board.dynamic_profit_service import set_board_config as set_dynamic_config
 
 
 class BoardCountingCondition(Condition):
@@ -15,6 +17,12 @@ class BoardCountingCondition(Condition):
     depends_on = []
 
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
+        config = ctx.config.board
+        set_counting_config(config)
+        set_break_config(config)
+        set_default_board_config(config)
+        set_dynamic_config(config)
+
         board_status = ctx.board_repo.get_board_status(symbol)
         board_count_data = ctx.board_repo.get_board_count_data(symbol)
         prev_close = board_status.prev_close if board_status else 0.0
@@ -34,7 +42,7 @@ class BoardBreakSellCondition(Condition):
         board_status = ctx.board_repo.get_board_status(symbol)
         qty = handle_dynamic_profit_on_board_break(symbol, current_price, available_position,
                                                    day_data, board_status,
-                                                   ctx.context_store)   # 传递 context_store
+                                                   ctx.context_store)
         if qty:
             return BoardBreakSellDecision(
                 symbol=symbol,

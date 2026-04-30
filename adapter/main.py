@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
-传递 context_store 到收盘处理。
+完全使用配置对象，无旧常量导入。
 """
 from __future__ import annotations
 import os, sys, json, threading, time, logging
@@ -20,18 +20,10 @@ load_dotenv(project_root / ".env", override=True)
 
 _startup_info_printed = False
 _startup_lock = threading.Lock()
-
-from config.account import (
-    ACCOUNT_ID, ACCOUNT_DATA_EXPORT_ENABLED, ACCOUNT_DATA_EXPORT_INTERVAL, ACCOUNT_DATA_EXPORT_DIR,
-)
-from config.strategy import (
-    SYMBOLS_SOURCE, MANUAL_SYMBOLS_ENABLED, MANUAL_SYMBOLS, ENABLE_SLEEP_MODE,
-    CALLBACK_ADDITION_ENABLED, MIN_TRADE_UNIT, CALLBACK_ON_CONDITION2, CALLBACK_ON_CONDITION9, CALLBACK_ON_CONDITION8,
-)
+from config.account import ACCOUNT_ID
 from config.calendar import (
-    TRADING_START_TIME, ENABLE_TRADING_START_TIME, validate_calendar_config, STRATEGY_INIT_TIME, TRADING_HOURS,
+    validate_calendar_config, STRATEGY_INIT_TIME,
 )
-
 from use_case.health_check import is_trading_day, is_in_trading_hours
 from use_case.init_assets import build_tracking_symbols
 from adapter.gm_adapter import load_history_data, fetch_cash, fetch_positions
@@ -43,11 +35,9 @@ from service.indicator_service import calculate_indicators
 from repository.mail_sender import send_email
 from service.order_cancel_service import start_auto_cancel_thread
 from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
-
 from repository.stores import (
     SessionRegistryImpl, OrderLedgerImpl, BoardStateRepositoryImpl, CallbackTaskStoreImpl,
 )
-
 from domain.conditions.next_day_stop_loss import NextDayStopLossCondition
 from domain.conditions.condition2 import Condition2Condition
 from domain.conditions.condition9 import Condition9Condition
@@ -60,12 +50,10 @@ from domain.conditions.pyramid_add import PyramidAddCondition
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
-
 def _json_default(o):
     if isinstance(o, (date, datetime)):
         return o.isoformat()
     raise TypeError
-
 
 def print_startup_info() -> None:
     global _startup_info_printed
@@ -90,40 +78,37 @@ def print_startup_info() -> None:
             logger.info("当前时间 %s 不在交易时段内", now.strftime('%H:%M:%S'))
         _startup_info_printed = True
 
-
 def print_strategy_init_banner(config) -> None:
     logger.info("策略初始化开始 @ %s", datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S'))
     logger.info("使用配置的账户ID: %s", ACCOUNT_ID)
-    if MANUAL_SYMBOLS_ENABLED and MANUAL_SYMBOLS:
-        logger.info("手动输入股票代码: %s", ','.join([s.strip() for s in MANUAL_SYMBOLS if s.strip()]))
+    if config.entry.manual_symbols_enabled and config.entry.manual_symbols:
+        logger.info("手动输入股票代码: %s", ','.join(config.entry.manual_symbols))
     symbols = build_tracking_symbols()
-    logger.info("股票代码来源: %s", SYMBOLS_SOURCE)
+    logger.info("股票代码来源: %s", config.entry.stock_source)
     logger.info("跟踪股票: %s", ','.join(symbols))
     logger.info("股票总数: %d", len(symbols))
-    logger.info("休眠模式: %s", '启用' if ENABLE_SLEEP_MODE else '禁用')
-    logger.info("持仓检查: 启用")
-    logger.info("账户数据导出: %s", '启用' if ACCOUNT_DATA_EXPORT_ENABLED else '禁用')
-    if ACCOUNT_DATA_EXPORT_ENABLED:
-        logger.info("导出间隔: %d秒", ACCOUNT_DATA_EXPORT_INTERVAL)
-        logger.info("导出目录: %s", ACCOUNT_DATA_EXPORT_DIR)
+    logger.info("休眠模式: %s", '启用' if config.entry.sleep_mode else '禁用')
+    logger.info("账户数据导出: %s", '启用' if config.entry.account_data_export_enabled else '禁用')
+    if config.entry.account_data_export_enabled:
+        logger.info("导出间隔: %d秒", config.entry.account_data_export_interval)
+        logger.info("导出目录: %s", config.entry.account_data_export_dir)
     logger.info("交易参数配置:")
-    logger.info(" 动态回调加仓策略[%s]:", '启用' if CALLBACK_ADDITION_ENABLED else '禁用')
-    if CALLBACK_ADDITION_ENABLED:
-        logger.info("  最小交易单位: %d股", MIN_TRADE_UNIT)
-        logger.info("  条件2卖出后加仓: %s", '是' if CALLBACK_ON_CONDITION2 else '否')
-        logger.info("  条件9卖出后加仓: %s", '是' if CALLBACK_ON_CONDITION9 else '否')
-        logger.info("  条件8卖出后加仓: %s", '是' if CALLBACK_ON_CONDITION8 else '否')
+    logger.info(" 动态回调加仓策略[%s]:", '启用' if config.callback.enabled else '禁用')
+    if config.callback.enabled:
+        logger.info("  最小交易单位: %d股", config.callback.min_trade_unit)
+        logger.info("  条件2卖出后加仓: %s", '是' if config.callback.on_condition2 else '否')
+        logger.info("  条件9卖出后加仓: %s", '是' if config.callback.on_condition9 else '否')
+        logger.info("  条件8卖出后加仓: %s", '是' if config.callback.on_condition8 else '否')
     c2 = config.condition2
     logger.info(" 条件2(动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
-                '启用' if c2.enabled else '禁用', c2.trigger_percent * 100, c2.decline_percent * 100)
+                '启用' if c2.enabled else '禁用', c2.trigger_percent*100, c2.decline_percent*100)
     c9 = config.condition9
     logger.info(" 条件9(第一区间动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
-                '启用' if c9.enabled else '禁用', c9.trigger_percent * 100, c9.decline_percent * 100)
+                '启用' if c9.enabled else '禁用', c9.trigger_percent*100, c9.decline_percent*100)
     c8 = config.condition8
     logger.info(" 条件8(动态基准价交易)[%s]: 上涨触发=%.2f%%, 下跌触发=%.2f%%, 最大交易次数=%d",
-                '启用' if c8.enabled else '禁用', c8.rise_percent * 100, c8.decline_percent * 100, c8.max_trade_times)
+                '启用' if c8.enabled else '禁用', c8.rise_percent*100, c8.decline_percent*100, c8.max_trade_times)
     logger.info("  启用的条件: %s", ', '.join(config.enabled_conditions))
-
 
 def _daily_init_thread():
     while True:
@@ -137,7 +122,6 @@ def _daily_init_thread():
                 logger.info("【daily_init】无标的可订阅")
             time.sleep(1)
         time.sleep(1)
-
 
 def real_init(context):
     validate_calendar_config()
@@ -234,9 +218,9 @@ def real_init(context):
     logger.info("已批量订阅 %d 只股票的tick数据", len(symbols))
     logger.info("策略初始化完成")
 
-    if ACCOUNT_DATA_EXPORT_ENABLED:
-        os.makedirs(ACCOUNT_DATA_EXPORT_DIR, exist_ok=True)
-        export_path = os.path.join(ACCOUNT_DATA_EXPORT_DIR, "account_data.json")
+    if strategy_config.entry.account_data_export_enabled:
+        os.makedirs(strategy_config.entry.account_data_export_dir, exist_ok=True)
+        export_path = os.path.join(strategy_config.entry.account_data_export_dir, "account_data.json")
         cash = fetch_cash()
         positions = fetch_positions()
         data = {"timestamp": datetime.now().isoformat(), "cash": cash, "positions": positions}
@@ -251,7 +235,7 @@ def real_init(context):
                 from use_case.handle_close import handle_market_close
                 symbols = build_tracking_symbols()
                 for sym in symbols:
-                    handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger, context_store)
+                    handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger)
                 logger.info("【daily_close】15:30 收盘处理完成")
                 time.sleep(1)
             time.sleep(1)
@@ -260,7 +244,6 @@ def real_init(context):
     threading.Thread(target=_daily_close, daemon=True).start()
     start_auto_cancel_thread(order_ledger, session_registry, context_store)
     logger.info("【init】已启动 09:29 重新订阅、15:30 收盘处理、自动撤单守护线程")
-
 
 def calculate_next_trading_start_time(now: datetime):
     now = now.astimezone(beijing_tz)
@@ -274,7 +257,6 @@ def calculate_next_trading_start_time(now: datetime):
         if is_trading_day(next_date):
             return beijing_tz.localize(datetime.combine(next_date, init_time))
     return None
-
 
 def init(context):
     print_startup_info()
@@ -290,7 +272,6 @@ def init(context):
         logger.info("[WAIT] 非交易时段，将在 %s 自动初始化，还需等待 %d 秒。",
                      next_start.strftime('%H:%M:%S'), int(wait_seconds))
         threading.Timer(wait_seconds, lambda: real_init(context)).start()
-
 
 def run_strategy() -> None:
     print_startup_info()
@@ -313,7 +294,6 @@ def run_strategy() -> None:
         logger.info("收到 Ctrl+C，程序退出")
         from config.logging_config import restore_stdio
         restore_stdio()
-
 
 if __name__ == "__main__":
     run_strategy()

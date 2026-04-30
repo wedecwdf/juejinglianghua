@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 聚合所有配置子模块。
-同时导出配置对象和必要的公共接口。
+不再导出旧常量，仅提供配置对象。
 """
 from .mail import *
 from .account import *
@@ -17,5 +17,3 @@ from .strategy.config_objects import (
     PyramidProfitConfig,
     CallbackAddConfig,
 )
-# 向后兼容的旧常量导出
-from .strategy import *
