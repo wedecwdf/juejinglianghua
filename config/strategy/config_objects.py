@@ -1,18 +1,20 @@
 # config/strategy/config_objects.py
 # -*- coding: utf-8 -*-
 """
-策略配置数据类，所有策略参数均收敛于此。
-支持从环境变量覆盖默认值。
+策略配置数据类，所有策略参数均收敛于此，支持环境变量覆盖。
+配置验证逻辑在 load_strategy_config 中统一执行。
 """
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 import os
+import logging
 
-# ---------- 条件2配置 ----------
+logger = logging.getLogger(__name__)
+
+# ---------- 条件配置 ----------
 @dataclass(frozen=True)
 class Condition2Config:
     enabled: bool = True
-    dynamic_profit_enabled: bool = True
     trigger_percent: float = 0.0031
     decline_percent: float = 0.001
     sell_price_offset: float = 0.001
@@ -25,7 +27,6 @@ class Condition2Config:
     next_day_max_sell_ratio: float = 0.5
     next_day_max_days: int = 10
 
-# ---------- 条件9配置 ----------
 @dataclass(frozen=True)
 class Condition9Config:
     enabled: bool = True
@@ -39,7 +40,6 @@ class Condition9Config:
     sell_percent_low: float = 0.05
     max_sell_times: int = 1
 
-# ---------- 条件8配置 ----------
 @dataclass(frozen=True)
 class Condition8Config:
     enabled: bool = True
@@ -62,7 +62,6 @@ class Condition8Config:
     buy_quantity: Dict[str, int] = field(default_factory=dict)
     max_total_quantity: Dict[str, int] = field(default_factory=dict)
 
-# ---------- MA交易配置 ----------
 @dataclass(frozen=True)
 class MaTradingConfig:
     condition4_enabled: bool = False
@@ -73,7 +72,6 @@ class MaTradingConfig:
     buy_below_ma8_qty: int = 100
     buy_below_ma12_qty: int = 100
 
-# ---------- 金字塔止盈配置 ----------
 @dataclass(frozen=True)
 class PyramidProfitConfig:
     enabled: bool = True
@@ -87,7 +85,6 @@ class PyramidProfitConfig:
     default_levels: List[float] = field(default_factory=lambda: [0.02, 0.03, 0.039])
     default_ratios: List[float] = field(default_factory=lambda: [0.1, 0.1, 0.1])
 
-# ---------- 动态回调加仓配置 ----------
 @dataclass(frozen=True)
 class CallbackAddConfig:
     enabled: bool = True
@@ -97,7 +94,6 @@ class CallbackAddConfig:
     on_condition8: bool = True
     buy_price_offset: float = 0.01
 
-# ---------- 顶层配置 ----------
 @dataclass(frozen=True)
 class StrategyConfig:
     condition2: Condition2Config = field(default_factory=Condition2Config)
@@ -118,13 +114,14 @@ class StrategyConfig:
         'board_counting',
     ])
 
+
 def _parse_env_list(env_value: str) -> List[str]:
     if not env_value:
         return []
     return [s.strip() for s in env_value.split(',') if s.strip()]
 
+
 def load_strategy_config() -> StrategyConfig:
-    # 条件2
     c2 = Condition2Config(
         enabled=os.getenv('CONDITION2_ENABLED', 'true').lower() == 'true',
         trigger_percent=float(os.getenv('CONDITION2_TRIGGER_PERCENT', 0.0031)),
@@ -135,7 +132,6 @@ def load_strategy_config() -> StrategyConfig:
         sell_percent_high=float(os.getenv('CONDITION2_SELL_PERCENT_HIGH', 0.3)),
         sell_percent_low=float(os.getenv('CONDITION2_SELL_PERCENT_LOW', 0.1)),
     )
-    # 条件9
     c9 = Condition9Config(
         enabled=os.getenv('CONDITION9_ENABLED', 'true').lower() == 'true',
         upper_band_percent=float(os.getenv('CONDITION9_UPPER_BAND', 0.02)),
@@ -148,7 +144,6 @@ def load_strategy_config() -> StrategyConfig:
         sell_percent_low=float(os.getenv('CONDITION9_SELL_PERCENT_LOW', 0.05)),
         max_sell_times=int(os.getenv('CONDITION9_MAX_SELL_TIMES', 1)),
     )
-    # 条件8
     c8 = Condition8Config(
         enabled=os.getenv('CONDITION8_ENABLED', 'true').lower() == 'true',
         max_trade_times=int(os.getenv('CONDITION8_MAX_TRADE_TIMES', 100)),
@@ -167,7 +162,6 @@ def load_strategy_config() -> StrategyConfig:
         high_freq_stocks=_parse_env_list(os.getenv('CONDITION8_HIGH_FREQ_STOCKS', '')),
         low_freq_stocks=_parse_env_list(os.getenv('CONDITION8_LOW_FREQ_STOCKS', '')),
     )
-    # MA
     ma = MaTradingConfig(
         condition4_enabled=os.getenv('CONDITION4_ENABLED', 'false').lower() == 'true',
         condition5_enabled=os.getenv('CONDITION5_ENABLED', 'false').lower() == 'true',
@@ -177,12 +171,10 @@ def load_strategy_config() -> StrategyConfig:
         buy_below_ma8_qty=int(os.getenv('BUY_BELOW_MA8_QUANTITY', 100)),
         buy_below_ma12_qty=int(os.getenv('BUY_BELOW_MA12_QUANTITY', 100)),
     )
-    # 金字塔
     pyramid = PyramidProfitConfig(
         enabled=os.getenv('PYRAMID_PROFIT_ENABLED', 'true').lower() == 'true',
         sell_price_offset=float(os.getenv('PYRAMID_PROFIT_SELL_PRICE_OFFSET', 0.01)),
     )
-    # 回调加仓
     callback = CallbackAddConfig(
         enabled=os.getenv('CALLBACK_ADDITION_ENABLED', 'true').lower() == 'true',
         min_trade_unit=int(os.getenv('MIN_TRADE_UNIT', 100)),
@@ -191,12 +183,11 @@ def load_strategy_config() -> StrategyConfig:
         on_condition8=os.getenv('CALLBACK_ON_CONDITION8', 'true').lower() == 'true',
         buy_price_offset=float(os.getenv('CALLBACK_BUY_PRICE_OFFSET', 0.01)),
     )
-    # 启用的条件列表
     enabled_str = os.getenv('ENABLED_CONDITIONS', '')
     if enabled_str:
         enabled_conditions = [s.strip() for s in enabled_str.split(',') if s.strip()]
     else:
-        # 默认启用所有常用条件
+        # 使用类默认值，直接在这里硬编码，避免引用 default_factory
         enabled_conditions = [
             'next_day_stop_loss',
             'condition2',
@@ -208,7 +199,6 @@ def load_strategy_config() -> StrategyConfig:
             'pyramid_profit',
             'board_counting',
         ]
-
     return StrategyConfig(
         condition2=c2,
         condition9=c9,
