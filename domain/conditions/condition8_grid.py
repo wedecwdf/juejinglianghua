@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 条件8动态基准价网格交易包装。
-使用配置对象创建 Condition8Context，消除领域层对 config.strategy 的直接依赖。
+必须传入 config 参数。
 """
 from __future__ import annotations
 from typing import Optional
@@ -16,11 +16,14 @@ class Condition8GridCondition(Condition):
     depends_on = []
 
     def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
-        config = ctx.config.condition8   # 从 TickContext 获取配置
+        config = ctx.config.condition8
         context8 = ctx.context_store.get('condition8', symbol,
                                          factory=lambda: self._create_context(base_price, config))
-        res = check_condition8(day_data, context8, current_price, available_position,
-                               order_ledger=ctx.order_repo)
+        res = check_condition8(
+            day_data, context8, current_price, available_position,
+            order_ledger=ctx.order_repo,
+            config=config                  # <-- 必须传入
+        )
         if not res:
             return None
 

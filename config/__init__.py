@@ -1,10 +1,21 @@
+# config/__init__.py
 # -*- coding: utf-8 -*-
-
 """
-聚合所有配置子模块，保持对外接口不变。
+聚合所有配置子模块。
+同时导出配置对象和必要的公共接口。
 """
-
-from .mail import *  # 邮件参数唯一出处
-from .account import *  # 账户参数唯一出处
-from .calendar import *  # 时间/日历参数唯一出处
-from .strategy import *  # 策略参数唯一出处（现为包导入，兼容原接口）
+from .mail import *
+from .account import *
+from .calendar import *
+from .strategy.config_objects import (
+    load_strategy_config,
+    StrategyConfig,
+    Condition2Config,
+    Condition9Config,
+    Condition8Config,
+    MaTradingConfig,
+    PyramidProfitConfig,
+    CallbackAddConfig,
+)
+# 向后兼容的旧常量导出
+from .strategy import *

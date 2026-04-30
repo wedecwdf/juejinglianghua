@@ -1,7 +1,7 @@
 # service/condition_service.py
 # -*- coding: utf-8 -*-
 """
-所有编号条件检查入口，支持配置注入。
+所有编号条件检查入口，config 参数不再提供默认值（由调用方传入）。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
@@ -26,7 +26,7 @@ from service.conditions.pyramid_profit import check_pyramid_profit as _pyramid
 
 def check_condition2(context: Condition2Context, increase: float, current_price: float,
                      base_price: float, board_break_active: bool = False,
-                     config: Optional[Condition2Config] = None) -> Optional[Dict[str, Any]]:
+                     config: Condition2Config = None) -> Optional[Dict[str, Any]]:
     return _cond2(context, increase, current_price, base_price, board_break_active, config)
 
 
@@ -53,14 +53,14 @@ def check_condition7(day_data: DayData, context: Condition4To7Context,
 def check_condition8(day_data: DayData, context: Condition8Context, current_price: float,
                      available_position: int,
                      order_ledger: AbstractOrderLedger,
-                     config: Optional[Condition8Config] = None) -> Optional[Dict[str, Any]]:
+                     config: Condition8Config = None) -> Optional[Dict[str, Any]]:
     return _cond8(day_data, context, current_price, available_position, order_ledger, config)
 
 
 def check_condition9(context: Condition9Context, increase: float, current_price: float,
                      base_price: float, board_break_active: bool = False,
                      condition2_active: bool = False,
-                     config: Optional[Condition9Config] = None) -> Optional[Dict[str, Any]]:
+                     config: Condition9Config = None) -> Optional[Dict[str, Any]]:
     return _cond9(context, increase, current_price, base_price, board_break_active, condition2_active, config)
 
 

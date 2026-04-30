@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 条件8：系统状态检查、业务规则校验、数据获取。
-所有配置参数均从 Condition8Config 获取，不再依赖全局常量。
+所有参数从 config 对象获取，不再使用全局常量。
 """
 from __future__ import annotations
 import logging
@@ -11,10 +11,7 @@ from typing import Dict, Any
 from domain.contexts.condition8 import Condition8Context
 from domain.stores.base import AbstractOrderLedger
 from config.strategy.config_objects import Condition8Config
-from .utils import (
-    _get_condition8_thresholds,
-    _get_stock_frequency_type,
-)
+from .utils import _get_condition8_thresholds, _get_stock_frequency_type
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +24,6 @@ def _check_system_state(order_ledger: AbstractOrderLedger, symbol: str,
     if order_ledger.is_cancelling(symbol):
         logger.info('【撤单保护】%s 正在撤单中，跳过条件8检查', symbol)
         return False
-
     if order_ledger.is_condition8_sleeping():
         if config.price_band_enabled:
             upper = context.condition8_upper_band
@@ -79,11 +75,9 @@ def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str,
         ref_price = context.condition8_reference_price
         if ref_price is None or ref_price <= 0:
             ref_price = 0.0
-
     rise_threshold, decline_threshold = _get_condition8_thresholds(symbol, config)
     stock_type = _get_stock_frequency_type(symbol)
     type_desc = "高频" if stock_type == 'high' else ("低频" if stock_type == 'low' else "默认")
-
     return {
         "ref_price": ref_price,
         "rise_threshold": rise_threshold,

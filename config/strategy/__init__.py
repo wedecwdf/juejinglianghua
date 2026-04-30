@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 策略参数统一入口。
-仅导出配置对象工厂和已被对象化的常量，不再包含任何副作用或验证逻辑。
+提供新的配置对象（推荐使用）以及向后兼容的旧常量（即将弃用）。
 """
 from .config_objects import (
     load_strategy_config,
@@ -15,7 +15,7 @@ from .config_objects import (
     CallbackAddConfig,
 )
 
-# 为向后兼容，仍导出旧模块常量，但标记为即将弃用
+# 向后兼容的旧常量导出（逐步将引用迁移至 config_objects）
 from .base import *
 from .indicators import *
 from .board import *

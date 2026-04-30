@@ -2,24 +2,21 @@
 # -*- coding: utf-8 -*-
 """
 条件8：动态基准价交易（主入口）。
-增加 config 参数，实现配置注入。
+config 参数不再默认加载全局配置。
 """
 from __future__ import annotations
 from typing import Optional, Dict, Any
 from domain.day_data import DayData
 from domain.contexts.condition8 import Condition8Context
 from domain.stores.base import AbstractOrderLedger
-from config.strategy.config_objects import Condition8Config, load_strategy_config
+from config.strategy.config_objects import Condition8Config
 from .cond8_validation import _check_system_state, _validate_business_rules, _fetch_data
 from .cond8_execution import _execute_trading_logic
 
 def check_condition8(day_data: DayData, context: Condition8Context, current_price: float,
                      available_position: int,
                      order_ledger: AbstractOrderLedger,
-                     config: Optional[Condition8Config] = None) -> Optional[Dict[str, Any]]:
-    if config is None:
-        config = load_strategy_config().condition8   # 向后兼容
-
+                     config: Condition8Config) -> Optional[Dict[str, Any]]:
     symbol = day_data.symbol
     if not _check_system_state(order_ledger, symbol, context, current_price, config):
         return None
