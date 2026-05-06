@@ -4,26 +4,38 @@
 收盘处理：打印、独立落库。
 不再依赖 config.strategy 旧常量，通过 context_store 获取条件状态。
 """
+
 from __future__ import annotations
 import logging
 import os
 from datetime import datetime
-from domain.stores import SessionRegistry, BoardStateRepository, CallbackTaskStore
+
+from domain.stores.base import (
+    AbstractSessionRegistry,
+    AbstractBoardStateRepository,
+    AbstractCallbackTaskStore,
+)
 from domain.stores.order_interfaces import OrderRepository
 from domain.stores.context_store import ContextStore
 
 logger = logging.getLogger(__name__)
 
 # 从环境变量读取启用标志，提供默认值
-DYNAMIC_PROFIT_NEXT_DAY_ADJUST_ENABLED = os.getenv('DYNAMIC_PROFIT_NEXT_DAY_ADJUSTMENT_ENABLED', 'true').lower() == 'true'
-CALLBACK_ADDITION_ENABLED = os.getenv('CALLBACK_ADDITION_ENABLED', 'true').lower() == 'true'
-PYRAMID_PROFIT_ENABLED = os.getenv('PYRAMID_PROFIT_ENABLED', 'true').lower() == 'true'
+DYNAMIC_PROFIT_NEXT_DAY_ADJUST_ENABLED = (
+    os.getenv('DYNAMIC_PROFIT_NEXT_DAY_ADJUSTMENT_ENABLED', 'true').lower() == 'true'
+)
+CALLBACK_ADDITION_ENABLED = (
+    os.getenv('CALLBACK_ADDITION_ENABLED', 'true').lower() == 'true'
+)
+PYRAMID_PROFIT_ENABLED = (
+    os.getenv('PYRAMID_PROFIT_ENABLED', 'true').lower() == 'true'
+)
 
 
 def handle_market_close(symbol: str, tick_time: datetime,
-                        session_registry: SessionRegistry,
-                        board_repo: BoardStateRepository,
-                        callback_store: CallbackTaskStore,
+                        session_registry: AbstractSessionRegistry,
+                        board_repo: AbstractBoardStateRepository,
+                        callback_store: AbstractCallbackTaskStore,
                         order_repo: OrderRepository,
                         context_store: ContextStore) -> None:
     if tick_time.hour < 15:
@@ -131,4 +143,5 @@ def handle_market_close(symbol: str, tick_time: datetime,
     board_repo.save()
     callback_store.save()
     session_registry.save()
+
     logger.info("===== %s 收盘处理完成 =====", symbol)

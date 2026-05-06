@@ -3,11 +3,13 @@
 """
 邮件发送唯一实现
 """
+
 import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Union
+
 from config.mail import (
     SENDER_EMAIL, SENDER_PASSWORD, RECEIVER_EMAIL,
     SMTP_SERVER, SMTP_PORT
@@ -15,13 +17,18 @@ from config.mail import (
 
 logger = logging.getLogger(__name__)
 
+
 def send_email(subject: str, message: str) -> bool:
+    if not SENDER_EMAIL or not SENDER_PASSWORD:
+        logger.warning("邮件配置缺失，无法发送邮件")
+        return False
     try:
         msg = MIMEMultipart()
         msg["From"] = SENDER_EMAIL
         msg["To"] = RECEIVER_EMAIL
         msg["Subject"] = subject
         msg.attach(MIMEText(message, "plain", "utf-8"))
+
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT, timeout=15) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, [RECEIVER_EMAIL], msg.as_string())

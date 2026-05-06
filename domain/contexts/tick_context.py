@@ -17,7 +17,7 @@ from domain.stores.order_interfaces import (
     SleepStateManager,
     Condition8OrderTracker,
 )
-from config.strategy.config_objects import Condition8Config, TechIndicatorConfig
+from config.strategy.config_objects import Condition8Config, TechIndicatorConfig, CallbackAddConfig
 from domain.decisions import Condition
 
 
@@ -35,9 +35,9 @@ class TickContext:
 
     context_store: ContextStore
 
-    # 仅保留大量条件用到的配置片段，而不是整个 StrategyConfig
     condition8_config: Condition8Config
-    tech_indicator_config: TechIndicatorConfig   # 用于指标刷新和历史数据加载
+    tech_indicator_config: TechIndicatorConfig
+    callback_config: CallbackAddConfig      # 新增
 
     conditions: List[Condition] = field(default_factory=list)
     side_effects: List[Condition] = field(default_factory=list)

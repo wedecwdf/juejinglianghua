@@ -1,23 +1,13 @@
 # adapter/event_handler.py
 # -*- coding: utf-8 -*-
 """
-GM 事件薄转发层，使用拆分后的小接口，直接调用适配器及服务函数。
+GM 事件薄转发层，使用拆分后的小接口，直接调用服务函数。
 """
 
 from __future__ import annotations
 import logging
 from datetime import datetime
 
-from adapter.gm_adapter import (
-    subscribe,
-    history_data,
-    get_position,
-    get_cash,
-    get_orders,
-    cancel_order_by_cl_ord_id,
-    order_volume,
-    get_trading_dates,
-)
 from use_case.handle_tick import handle_tick
 from use_case.handle_close import handle_market_close
 from use_case.health_check import update_sleep_state

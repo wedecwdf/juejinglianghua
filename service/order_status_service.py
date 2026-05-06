@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from domain.contexts.tick_context import TickContext
 from repository.mail_sender import send_email
@@ -24,7 +24,6 @@ def handle_order_filled(ctx: TickContext, order: dict[str, Any]) -> None:
     price = order.get("price", 0.0)
     volume = order.get("volume", 0)
 
-    # 获取实际成交价格与数量
     reports = get_execution_reports()
     exec_price = price
     exec_volume = volume
@@ -37,7 +36,6 @@ def handle_order_filled(ctx: TickContext, order: dict[str, Any]) -> None:
     if exec_price > 0:
         ctx.condition8_tracker.record_condition8_done_price(symbol, exec_price)
 
-    # 如果是卖出，尝试为动态回调加仓创建任务
     if order.get("side") == 2:
         pending_order = ctx.order_repo.get_pending_order(cl_ord_id)
         condition_type = pending_order.get("condition_type") if pending_order else None
@@ -53,7 +51,8 @@ def handle_order_filled(ctx: TickContext, order: dict[str, Any]) -> None:
                     sell_amount=sell_amount,
                     sell_quantity=exec_volume,
                     condition_type=condition_type,
-                    store=ctx.callback_store
+                    store=ctx.callback_store,
+                    config=ctx.callback_config
                 )
                 if task:
                     send_email(
@@ -63,7 +62,6 @@ def handle_order_filled(ctx: TickContext, order: dict[str, Any]) -> None:
                         f"触发价:{task.trigger_price:.4f}\n计划买入:{task.buy_quantity}股"
                     )
 
-    # 条件8互斥撤单
     ctx.condition8_tracker.cancel_condition8_opposite(symbol, cl_ord_id)
 
 

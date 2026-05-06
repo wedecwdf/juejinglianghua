@@ -2,6 +2,7 @@
 from __future__ import annotations
 from typing import Callable
 from domain.decisions import Condition, Decision, DecisionType
+from config.strategy.config_objects import CallbackAddConfig
 
 
 class PyramidAddCondition(Condition):
@@ -9,17 +10,20 @@ class PyramidAddCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, check_fn: Callable, complete_fn: Callable) -> None:
+    def __init__(self, check_fn: Callable, complete_fn: Callable,
+                 config: CallbackAddConfig) -> None:
         """
-        :param check_fn: 检查函数，check_callback_strategy(symbol, current_price, store) -> Optional[dict]
-        :param complete_fn: 完成回调函数，complete_callback_task(symbol, store) -> None
+        :param check_fn: 检查函数，签名为 (symbol, current_price, store, config) -> Optional[dict]
+        :param complete_fn: 完成回调函数，签名为 (symbol, store) -> None
         """
         self._check_fn = check_fn
         self._complete_fn = complete_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
-        result = self._check_fn(symbol, current_price, store=ctx.callback_store)
+        result = self._check_fn(symbol, current_price, store=ctx.callback_store,
+                                config=self._config)  # 需适配签名
         if result:
             return PyramidAddDecision(
                 symbol=symbol,
