@@ -1,4 +1,3 @@
-# adapter/main.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
@@ -80,7 +79,8 @@ from service.board.counting_service import set_board_config as set_counting_conf
 from service.board.break_service import set_board_config as set_break_config
 from service.board.dynamic_profit_service import set_board_config as set_dynamic_config
 from service.conditions.pyramid_profit import check_pyramid_profit
-from service.pyramid_service import check_callback_strategy
+# 注入两个函数：检查回调策略 和 完成回调任务
+from service.pyramid_service import check_callback_strategy, complete_callback_task
 from service.day_adjust_service import (
     set_config as set_day_adjust_config,
     check_dynamic_profit_next_day_adjustment,
@@ -202,13 +202,12 @@ def real_init(context):
     context_store = ContextStore()
 
     # ---------- 构造条件实例（依赖注入） ----------
-    # 每个工厂函数返回已注入所需 service 函数的新条件对象
     condition_builders = {
         'next_day_stop_loss': (1, lambda: NextDayStopLossCondition(check_dynamic_profit_next_day_adjustment)),
         'condition2': (2, lambda: Condition2Condition(check_condition2, sell_qty_by_percent)),
         'board_break_sell': (2, lambda: BoardBreakSellCondition(handle_dynamic_profit_on_board_break)),
         'condition9': (3, lambda: Condition9Condition(check_condition9, sell_qty_by_percent)),
-        'pyramid_add': (4, lambda: PyramidAddCondition(check_callback_strategy)),
+        'pyramid_add': (4, lambda: PyramidAddCondition(check_callback_strategy, complete_callback_task)),
         'ma_trading': (5, lambda: MaTradingCondition(check_condition4, check_condition5, check_condition6, check_condition7)),
         'condition8_grid': (6, lambda: Condition8GridCondition(check_condition8)),
         'pyramid_profit': (7, lambda: PyramidProfitCondition(check_pyramid_profit)),
@@ -233,7 +232,7 @@ def real_init(context):
     conditions = [c for _, c in conditions]
     side_effects = [c for _, c in side_effects]
 
-    # 构建 TickContext（所有依赖均已就绪）
+    # 构建 TickContext
     tick_ctx = TickContext(
         session_registry=session_registry,
         board_repo=board_repo,
@@ -368,8 +367,4 @@ def run_strategy() -> None:
 
 
 if __name__ == "__main__":
-    # 注意：daily_init_thread 和 daily_close 需要依赖 real_init 中创建的变量，
-    # 但这里的线程启动在 init 之前。在实际运行中，init 会在 real_init 中重新设置全局变量，
-    # 这些守护线程内部使用的 session_registry 等对象也应该在 real_init 中重新获取。
-    # 此处沿用旧代码，调用 run_strategy 后会进入 GM 事件循环，init 函数会在合适时机被回调。
     run_strategy()
