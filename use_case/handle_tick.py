@@ -2,19 +2,21 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
-单 tick 完整流程 - 传递 condition8_config 到快照函数。
+单 tick 完整流程编排——仅负责流程调度，不混杂数据操作细节。
 """
 
 from __future__ import annotations
 import logging
-from datetime import date, datetime
 from typing import Dict, Any
+
 import pytz
 
-from service.tick_data_service import update_day_data, refresh_indicators, print_tick_snapshot
-from service.trade_engine import execute_conditions
-from use_case.health_check import is_in_trading_hours
 from domain.contexts.tick_context import TickContext
+from use_case.health_check import is_in_trading_hours
+from service.tick_processing_service import prepare_tick_environment
+from service.tick_data_service import print_tick_snapshot
+from service.trade_engine import execute_conditions
+from adapter.gm_adapter import get_available_position
 
 beijing_tz = pytz.timezone("Asia/Shanghai")
 logger = logging.getLogger(__name__)
@@ -26,51 +28,32 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
     if not is_in_trading_hours(tick_time):
         return
 
-    tick_date = tick_time.date()
-    current_price = tick["price"]
-
     if ctx.cancel_lock_manager.is_cancelling(symbol):
         logger.info("【撤单保护】%s 正在撤单中，跳过本次 tick 处理", symbol)
         return
 
-    # 更新 DayData（仅行情）
-    day_data = update_day_data(symbol, tick, tick_date, ctx.session_registry)
+    # 1. 准备环境（更新行情，处理撤单后状态）
+    day_data = prepare_tick_environment(symbol, tick, ctx)
 
-    # 防重复标记清理
-    try:
-        context2 = ctx.context_store.get('condition2', symbol)
-        if context2.post_cancel_rechecked:
-            context2.post_cancel_rechecked = False
-    except KeyError:
-        pass
-    try:
-        context9 = ctx.context_store.get('condition9', symbol)
-        if context9 and context9.post_cancel_rechecked:
-            context9.post_cancel_rechecked = False
-    except KeyError:
-        pass
-
-    if ctx.cancel_lock_manager.pop_cancelled(symbol):
-        logger.info("【撤单再判断】%s 上次撤单已清除，立即重新判断条件", symbol)
-        refresh_indicators(symbol, day_data)
-
-    from adapter.gm_adapter import get_available_position
+    # 2. 获取可用持仓与基准价
+    current_price = tick["price"]
     available_position = get_available_position(symbol)
     base_price = day_data.base_price
 
-    # 传入 condition8_config（从 TickContext 获取）
+    # 3. 打印快照（记录状态）
     print_tick_snapshot(
         symbol, current_price, day_data,
         ctx.session_registry, ctx.context_store,
         ctx.condition8_config
     )
 
-    # 执行交易条件（不再需要 config 参数）
+    # 4. 执行交易条件
     execute_conditions(
         symbol, current_price, tick_time, available_position,
         day_data, base_price, ctx
     )
 
+    # 5. 持久化
     ctx.order_repo.save()
     ctx.condition_trigger_repo.save()
     ctx.board_repo.save()

@@ -1,3 +1,4 @@
+# adapter/main.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
@@ -5,6 +6,7 @@ GM 实盘/模拟盘通用入口
 
 完全使用配置对象，无旧常量导入。
 领域层条件类通过依赖注入获取 service 层的检查函数和配置，彻底解耦。
+所有模块级 set_config 调用已清除。
 """
 
 from __future__ import annotations
@@ -67,19 +69,18 @@ from service.condition_service import (
 )
 from service.order_executor import sell_qty_by_percent
 from service.board_service import handle_board_counting, handle_dynamic_profit_on_board_break
-from service.board.state_machine import set_default_board_config
-from service.board.counting_service import set_board_config as set_counting_config
-from service.board.break_service import set_board_config as set_break_config
-from service.board.dynamic_profit_service import set_board_config as set_dynamic_config
 from service.conditions.pyramid_profit import check_pyramid_profit
 from service.pyramid_service import check_callback_strategy, complete_callback_task
-from service.day_adjust_service import (
-    set_config as set_day_adjust_config,
-    check_dynamic_profit_next_day_adjustment,
-)
+from service.day_adjust_service import check_dynamic_profit_next_day_adjustment
 
 logger = logging.getLogger(__name__)
 beijing_tz = pytz.timezone("Asia/Shanghai")
+
+# 模块级仓库对象，供守护线程访问
+_session_registry = None
+_board_repo = None
+_callback_store = None
+_order_ledger = None
 
 
 def _json_default(o):
@@ -164,34 +165,29 @@ def real_init(context):
     strategy_config = load_strategy_config()
     print_strategy_init_banner(strategy_config)
 
-    # 各模块的静态配置（必须在条件实例化之前设置）
-    set_day_adjust_config(strategy_config.condition2)
-    set_default_board_config(strategy_config.board)
-    set_counting_config(strategy_config.board)
-    set_break_config(strategy_config.board)
-    set_dynamic_config(strategy_config.board)
-
     logger.info("开始加载持久化数据...")
-    session_registry = SessionRegistryImpl()
-    session_registry.load()
-    board_repo = BoardStateRepositoryImpl()
-    board_repo.load()
-    callback_store = CallbackTaskStoreImpl()
-    callback_store.load()
-    order_ledger = OrderLedgerImpl()
-    order_ledger.load()
+    global _session_registry, _board_repo, _callback_store, _order_ledger
+    _session_registry = SessionRegistryImpl()
+    _session_registry.load()
+    _board_repo = BoardStateRepositoryImpl()
+    _board_repo.load()
+    _callback_store = CallbackTaskStoreImpl()
+    _callback_store.load()
+    _order_ledger = OrderLedgerImpl()
+    _order_ledger.load()
     context_store = ContextStore()
 
-    # 条件实例化（依赖注入：服务函数 + 各自配置片段）
+    # 条件实例化（全部依赖注入，无全局 set_config）
     condition_builders = {
         'next_day_stop_loss': (1, lambda: NextDayStopLossCondition(
-            check_dynamic_profit_next_day_adjustment
+            check_dynamic_profit_next_day_adjustment,
+            strategy_config.condition2
         )),
         'condition2': (2, lambda: Condition2Condition(
             check_condition2, sell_qty_by_percent, strategy_config.condition2
         )),
         'board_break_sell': (2, lambda: BoardBreakSellCondition(
-            handle_dynamic_profit_on_board_break
+            handle_dynamic_profit_on_board_break, strategy_config.board
         )),
         'condition9': (3, lambda: Condition9Condition(
             check_condition9, sell_qty_by_percent, strategy_config.condition9
@@ -210,7 +206,7 @@ def real_init(context):
             check_pyramid_profit, strategy_config.pyramid, strategy_config.condition8
         )),
         'board_counting': (100, lambda: BoardCountingCondition(
-            handle_board_counting
+            handle_board_counting, strategy_config.board
         )),
     }
 
@@ -231,18 +227,18 @@ def real_init(context):
     conditions = [c for _, c in conditions]
     side_effects = [c for _, c in side_effects]
 
-    # 构建轻量 TickContext（只含必要组件，config 已拆解）
+    # 构建 TickContext（仅保留 condition8_config 用于日志，其他配置已注入）
     tick_ctx = TickContext(
-        session_registry=session_registry,
-        board_repo=board_repo,
-        callback_store=callback_store,
-        order_repo=order_ledger.as_order_repo(),
-        condition_trigger_repo=order_ledger.as_condition_trigger_repo(),
-        cancel_lock_manager=order_ledger.as_cancel_lock_manager(),
-        sleep_state_manager=order_ledger.as_sleep_state_manager(),
-        condition8_tracker=order_ledger.as_condition8_tracker(),
+        session_registry=_session_registry,
+        board_repo=_board_repo,
+        callback_store=_callback_store,
+        order_repo=_order_ledger.as_order_repo(),
+        condition_trigger_repo=_order_ledger.as_condition_trigger_repo(),
+        cancel_lock_manager=_order_ledger.as_cancel_lock_manager(),
+        sleep_state_manager=_order_ledger.as_sleep_state_manager(),
+        condition8_tracker=_order_ledger.as_condition8_tracker(),
         context_store=context_store,
-        condition8_config=strategy_config.condition8,   # 仅用于日志打印
+        condition8_config=strategy_config.condition8,
         conditions=conditions,
         side_effects=side_effects,
     )
@@ -263,21 +259,21 @@ def real_init(context):
             real_base_price = 1.0
         day_data = DayData(symbol, real_base_price, base_date)
         day_data.initialized = True
-        session_registry.set(symbol, day_data)
+        _session_registry.set(symbol, day_data)
 
     logger.info("开始计算技术指标...")
     for symbol in symbols:
-        dd = session_registry.get(symbol)
+        dd = _session_registry.get(symbol)
         if dd is None:
             continue
         df = load_history_data(symbol, base_date)
         if df is not None and not df.empty:
             calculate_indicators(df, dd)
 
-    session_registry.save()
-    board_repo.save()
-    callback_store.save()
-    order_ledger.save()
+    _session_registry.save()
+    _board_repo.save()
+    _callback_store.save()
+    _order_ledger.save()
     subscribe(symbols=symbols, frequency='tick', count=1)
     logger.info("已批量订阅 %d 只股票的tick数据", len(symbols))
     logger.info("策略初始化完成")
@@ -300,7 +296,8 @@ def _daily_close():
             from use_case.handle_close import handle_market_close
             symbols = build_tracking_symbols()
             for sym in symbols:
-                handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger)
+                if _session_registry and _board_repo and _callback_store and _order_ledger:
+                    handle_market_close(sym, now, _session_registry, _board_repo, _callback_store, _order_ledger)
             logger.info("【daily_close】15:30 收盘处理完成")
             time.sleep(1)
         time.sleep(1)

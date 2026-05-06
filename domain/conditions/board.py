@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 板数相关条件包装器，完全解耦 service 实现。
-所有业务函数通过构造函数注入。
+所有业务函数通过构造函数注入，配置通过构造函数传入。
 """
 
 from domain.decisions import Condition, Decision, DecisionType
 from typing import Callable
+from config.strategy.config_objects import BoardConfig
 
 
 class BoardCountingCondition(Condition):
@@ -14,12 +15,13 @@ class BoardCountingCondition(Condition):
     is_side_effect = True
     depends_on = []
 
-    def __init__(self, counting_fn: Callable) -> None:
+    def __init__(self, counting_fn: Callable, config: BoardConfig) -> None:
         """
         :param counting_fn: handle_board_counting(symbol, current_price, prev_close,
-                             tick_time, board_status, board_count_data) -> new_count
+                             tick_time, board_status, board_count_data, config) -> new_count
         """
         self._counting_fn = counting_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
@@ -27,7 +29,8 @@ class BoardCountingCondition(Condition):
         board_count_data = ctx.board_repo.get_board_count_data(symbol)
         prev_close = board_status.prev_close if board_status else 0.0
         new_count = self._counting_fn(symbol, current_price, prev_close,
-                                      ctx.tick_time, board_status, board_count_data)
+                                      ctx.tick_time, board_status, board_count_data,
+                                      self._config)
         if new_count is not None:
             ctx.board_repo.set_board_count_data(symbol, new_count)
         return None
@@ -38,20 +41,22 @@ class BoardBreakSellCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, dynamic_profit_fn: Callable) -> None:
+    def __init__(self, dynamic_profit_fn: Callable, config: BoardConfig) -> None:
         """
         :param dynamic_profit_fn: handle_dynamic_profit_on_board_break(
             symbol, current_price, available_position, day_data,
-            board_status, context_store) -> Optional[int]
+            board_status, context_store, config) -> Optional[int]
         """
         self._dynamic_profit_fn = dynamic_profit_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
         board_status = ctx.board_repo.get_board_status(symbol)
         qty = self._dynamic_profit_fn(symbol, current_price, available_position,
                                       day_data, board_status,
-                                      ctx.context_store)
+                                      ctx.context_store,
+                                      self._config)
         if qty:
             return BoardBreakSellDecision(
                 symbol=symbol,

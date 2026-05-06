@@ -1,32 +1,27 @@
 # service/board/break_service.py
 # -*- coding: utf-8 -*-
 """
-断板机制服务（静态止损），使用模块级配置。
+断板机制服务（静态止损），配置通过参数传入。
 """
+
 from __future__ import annotations
 import logging
 from datetime import datetime, date, timedelta
 from typing import Optional
+
 from domain.board import BoardStatus, BoardBreakStatus
 from config.strategy.config_objects import BoardConfig
 from .state_machine import is_limit_up_price
 
 logger = logging.getLogger(__name__)
 
-_board_config = BoardConfig()
-
-
-def set_board_config(config: BoardConfig):
-    global _board_config
-    _board_config = config
-
 
 def handle_board_break_mechanism(symbol: str, current_price: float,
                                  prev_close: float, tick_time: datetime,
                                  board_status: BoardStatus,
                                  board_break_status: BoardBreakStatus,
-                                 available_position: int) -> Optional[int]:
-    config = _board_config
+                                 available_position: int,
+                                 config: BoardConfig) -> Optional[int]:
     if not config.board_break_enabled:
         return None
     if board_break_status.sold:
@@ -36,12 +31,12 @@ def handle_board_break_mechanism(symbol: str, current_price: float,
     if last_effective is None:
         return None
 
+    # 计算下一个交易日
     next_trading_day = last_effective
     for _ in range(30):
         next_trading_day += timedelta(days=1)
         if next_trading_day.weekday() < 5:
             break
-
     if tick_time.date() != next_trading_day:
         return None
 
@@ -49,7 +44,7 @@ def handle_board_break_mechanism(symbol: str, current_price: float,
         logger.info("【断板判定】%s 当日曾经有效涨停过，不算断板", symbol)
         return None
 
-    if is_limit_up_price(current_price, board_status.limit_up_price, prev_close):
+    if is_limit_up_price(current_price, board_status.limit_up_price, prev_close, config):
         return None
 
     if not board_break_status.board_break_triggered:

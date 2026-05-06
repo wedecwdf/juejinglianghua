@@ -1,12 +1,12 @@
 # domain/conditions/next_day_stop_loss.py
 # -*- coding: utf-8 -*-
 """
-次日固定止损条件包装器，通过注入检查函数解耦。
-模块级 set_config 提前在 main.py 中调用。
+次日固定止损条件包装器，通过构造函数接收检查函数和配置。
 """
 
 from domain.decisions import Condition, Decision, DecisionType
 from typing import Callable
+from config.strategy.config_objects import Condition2Config
 
 
 class NextDayStopLossCondition(Condition):
@@ -14,18 +14,19 @@ class NextDayStopLossCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, check_fn: Callable) -> None:
+    def __init__(self, check_fn: Callable, config: Condition2Config) -> None:
         """
         :param check_fn: check_dynamic_profit_next_day_adjustment(
-            adj_ctx, current_price, available_position) -> Optional[int]
+            adj_ctx, current_price, available_position, config) -> Optional[int]
         """
         self._check_fn = check_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
         adj_ctx = ctx.context_store.get('next_day', symbol,
                                         factory=lambda: self._create_context())
-        qty = self._check_fn(adj_ctx, current_price, available_position)
+        qty = self._check_fn(adj_ctx, current_price, available_position, self._config)
         if qty:
             return NextDayStopLossDecision(
                 symbol=symbol,

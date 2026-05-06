@@ -1,37 +1,31 @@
 # service/board/state_machine.py
 # -*- coding: utf-8 -*-
 """
-炸板动态止盈状态机与板数工具函数，参数从 BoardConfig 获取。
+炸板动态止盈状态机与板数工具函数，所有配置通过参数传入，无全局可变状态。
 """
+
 from __future__ import annotations
 import logging
 from datetime import datetime, time as dt_time
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
+
 from domain.board import BoardStatus, BoardBreakState
 from config.strategy.config_objects import BoardConfig
 
 logger = logging.getLogger(__name__)
 
-# 默认配置，可在调用时被覆盖
-_board_config = BoardConfig()
-
-
-def set_default_board_config(config: BoardConfig):
-    global _board_config
-    _board_config = config
-
 
 class BoardBreakContext:
     def __init__(self, symbol: str, board_status: BoardStatus,
                  current_price: float, tick_time: datetime,
-                 available_position: int, config: BoardConfig = None):
+                 available_position: int, config: BoardConfig):
         self.symbol = symbol
         self.board_status = board_status
         self.current_price = current_price
         self.tick_time = tick_time
         self.available_position = available_position
-        self.config = config or _board_config
+        self.config = config
         self.sell_qty: Optional[int] = None
 
 
@@ -158,9 +152,7 @@ def _ensure_datetime(t: Any) -> Optional[datetime]:
     return None
 
 
-def get_limit_up_percent(symbol: str, config: BoardConfig = None) -> float:
-    if config is None:
-        config = _board_config
+def get_limit_up_percent(symbol: str, config: BoardConfig) -> float:
     if symbol.startswith("SHSE.60") or symbol.startswith("SZSE.00"):
         return config.main_board_limit_up
     if symbol.startswith("SZSE.30") or symbol.startswith("SHSE.688"):
@@ -173,9 +165,7 @@ def get_limit_up_percent(symbol: str, config: BoardConfig = None) -> float:
 
 
 def is_limit_up_price(current_price: float, limit_up_price: float,
-                      prev_close: float, config: BoardConfig = None) -> bool:
-    if config is None:
-        config = _board_config
+                      prev_close: float, config: BoardConfig) -> bool:
     if prev_close <= 0:
         return False
     tolerance = prev_close * config.limit_up_tolerance

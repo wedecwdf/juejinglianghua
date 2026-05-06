@@ -1,12 +1,14 @@
 # service/board/counting_service.py
 # -*- coding: utf-8 -*-
 """
-板数计数服务，参数通过 add_config 注入。
+板数计数服务，配置通过参数传入，不再使用全局变量。
 """
+
 from __future__ import annotations
 import logging
 from datetime import datetime, date
 from typing import Optional
+
 from domain.board import BoardStatus, BoardCountData, BoardBreakState
 from config.strategy.config_objects import BoardConfig
 from .state_machine import (
@@ -17,20 +19,12 @@ from .state_machine import (
 
 logger = logging.getLogger(__name__)
 
-# 模块级配置，由引擎在初始化时注入
-_board_config = BoardConfig()
-
-
-def set_board_config(config: BoardConfig):
-    global _board_config
-    _board_config = config
-
 
 def handle_board_counting(symbol: str, current_price: float,
                           prev_close: float, tick_time: datetime,
                           board_status: BoardStatus,
-                          board_count_data: Optional[BoardCountData]) -> Optional[BoardCountData]:
-    config = _board_config
+                          board_count_data: Optional[BoardCountData],
+                          config: BoardConfig) -> Optional[BoardCountData]:
     if not config.board_counting_enabled or prev_close <= 0:
         return board_count_data
 
@@ -48,7 +42,8 @@ def handle_board_counting(symbol: str, current_price: float,
             board_status.opened_start_time = None
             if current_state in [BoardBreakState.STAGE1_MONITORING, BoardBreakState.STAGE2_TAKEOVER]:
                 board_status.set_break_state(BoardBreakState.SEALED)
-                logger.info("【状态机】%s 重新封板，当前状态:%s->SEALED，阶段①/②暂停", symbol, current_state.value)
+                logger.info("【状态机】%s 重新封板，当前状态:%s->SEALED，阶段①/②暂停",
+                            symbol, current_state.value)
 
         if board_count_data is None:
             board_count_data = BoardCountData()
@@ -91,7 +86,8 @@ def handle_board_counting(symbol: str, current_price: float,
                 board_status.today_effective_sealed = False
                 board_status.last_effective_limit_up_price = limit_up_price
                 board_status.set_break_state(BoardBreakState.SEALED)
-                logger.info("【连板】%s 第%d板，新基准价 %.4f，状态机重置", symbol, board_count_data.count, limit_up_price)
+                logger.info("【连板】%s 第%d板，新基准价 %.4f，状态机重置",
+                            symbol, board_count_data.count, limit_up_price)
         return board_count_data
 
     # 非涨停（开板）逻辑
@@ -106,9 +102,8 @@ def handle_board_counting(symbol: str, current_price: float,
                 locked_base = board_status.last_effective_limit_up_price
                 board_status.board_break_dynamic_profit_line = locked_base * (
                     1 - config.dynamic_profit_decline_percent)
-                logger.info("【状态机：SEALED->STAGE1】%s 首次开板，阶段①激活，"
-                             "基准价:%.4f，止盈线:%.4f",
-                             symbol, locked_base, board_status.board_break_dynamic_profit_line)
+                logger.info("【状态机：SEALED->STAGE1】%s 首次开板，阶段①激活，基准价:%.4f，止盈线:%.4f",
+                            symbol, locked_base, board_status.board_break_dynamic_profit_line)
         else:
             if config.stage2_enabled and current_state == BoardBreakState.STAGE1_MONITORING:
                 opened_start = _ensure_datetime(board_status.opened_start_time)
@@ -117,7 +112,6 @@ def handle_board_counting(symbol: str, current_price: float,
                     if opened_duration >= config.max_open_duration:
                         if board_status.get_break_state() == BoardBreakState.STAGE1_MONITORING:
                             board_status.set_break_state(BoardBreakState.STAGE2_TAKEOVER)
-                            logger.info("【状态机：STAGE1->STAGE2】%s "
-                                         "开板持续%.1f分钟，炸板确认，阶段②接管",
-                                         symbol, opened_duration)
+                            logger.info("【状态机：STAGE1->STAGE2】%s 开板持续%.1f分钟，炸板确认，阶段②接管",
+                                        symbol, opened_duration)
     return board_count_data
