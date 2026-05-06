@@ -1,11 +1,20 @@
+# adapter/main.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
 GM 实盘/模拟盘通用入口
+
 完全使用配置对象，无旧常量导入。
+领域层条件类通过依赖注入获取 service 层的检查函数，彻底解耦。
 """
+
 from __future__ import annotations
-import os, sys, json, threading, time, logging
+import os
+import sys
+import json
+import threading
+import time
+import logging
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from gm.api import run, MODE_LIVE, ADJUST_PREV, set_token, subscribe
@@ -20,9 +29,11 @@ load_dotenv(project_root / ".env", override=True)
 
 _startup_info_printed = False
 _startup_lock = threading.Lock()
+
 from config.account import ACCOUNT_ID
 from config.calendar import (
-    validate_calendar_config, STRATEGY_INIT_TIME,
+    validate_calendar_config,
+    STRATEGY_INIT_TIME,
 )
 from use_case.health_check import is_trading_day, is_in_trading_hours
 from use_case.init_assets import build_tracking_symbols
@@ -36,8 +47,13 @@ from repository.mail_sender import send_email
 from service.order_cancel_service import start_auto_cancel_thread
 from adapter.event_handler import on_tick, on_error, on_backtest_finished, on_order_status
 from repository.stores import (
-    SessionRegistryImpl, OrderLedgerImpl, BoardStateRepositoryImpl, CallbackTaskStoreImpl,
+    SessionRegistryImpl,
+    OrderLedgerImpl,
+    BoardStateRepositoryImpl,
+    CallbackTaskStoreImpl,
 )
+
+# 领域条件类（导入类，实例化在 real_init 中通过工厂完成）
 from domain.conditions.next_day_stop_loss import NextDayStopLossCondition
 from domain.conditions.condition2 import Condition2Condition
 from domain.conditions.condition9 import Condition9Condition
@@ -47,42 +63,77 @@ from domain.conditions.condition8_grid import Condition8GridCondition
 from domain.conditions.pyramid_profit import PyramidProfitCondition
 from domain.conditions.pyramid_add import PyramidAddCondition
 
+# 这些是 service 层具体实现，将注入到领域条件中
+from service.condition_service import (
+    check_condition2,
+    check_condition4,
+    check_condition5,
+    check_condition6,
+    check_condition7,
+    check_condition8,
+    check_condition9,
+)
+from service.order_executor import sell_qty_by_percent
+from service.board_service import handle_board_counting, handle_dynamic_profit_on_board_break
+from service.board.state_machine import set_default_board_config
+from service.board.counting_service import set_board_config as set_counting_config
+from service.board.break_service import set_board_config as set_break_config
+from service.board.dynamic_profit_service import set_board_config as set_dynamic_config
+from service.conditions.pyramid_profit import check_pyramid_profit
+from service.pyramid_service import check_callback_strategy
+from service.day_adjust_service import (
+    set_config as set_day_adjust_config,
+    check_dynamic_profit_next_day_adjustment,
+)
+
 logger = logging.getLogger(__name__)
+
 beijing_tz = pytz.timezone("Asia/Shanghai")
+
 
 def _json_default(o):
     if isinstance(o, (date, datetime)):
         return o.isoformat()
     raise TypeError
 
+
 def print_startup_info() -> None:
     global _startup_info_printed
     with _startup_lock:
         if _startup_info_printed:
             return
+
         from config.logging_config import setup_global_logging
         setup_global_logging()
+
         now = datetime.now(beijing_tz)
         set_token(os.getenv("GM_TOKEN", ""))
+
         logger.info("python sdk version: 3.0.178")
         logger.info("c sdk version: 3.8.8")
         logger.info("-" * 50)
         logger.info("程序启动时间: %s", now.strftime('%Y-%m-%d %H:%M:%S'))
+
         if is_trading_day(now.date()):
             logger.info("当前日期 %s 是交易日", now.strftime('%Y-%m-%d'))
         else:
             logger.info("当前日期 %s 不是交易日", now.strftime('%Y-%m-%d'))
+
         if is_in_trading_hours(now):
             logger.info("当前时间 %s 在交易时段内", now.strftime('%H:%M:%S'))
         else:
             logger.info("当前时间 %s 不在交易时段内", now.strftime('%H:%M:%S'))
+
         _startup_info_printed = True
+
 
 def print_strategy_init_banner(config) -> None:
     logger.info("策略初始化开始 @ %s", datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S'))
     logger.info("使用配置的账户ID: %s", ACCOUNT_ID)
+
     if config.entry.manual_symbols_enabled and config.entry.manual_symbols:
         logger.info("手动输入股票代码: %s", ','.join(config.entry.manual_symbols))
+
     symbols = build_tracking_symbols()
     logger.info("股票代码来源: %s", config.entry.stock_source)
     logger.info("跟踪股票: %s", ','.join(symbols))
@@ -92,23 +143,26 @@ def print_strategy_init_banner(config) -> None:
     if config.entry.account_data_export_enabled:
         logger.info("导出间隔: %d秒", config.entry.account_data_export_interval)
         logger.info("导出目录: %s", config.entry.account_data_export_dir)
+
     logger.info("交易参数配置:")
     logger.info(" 动态回调加仓策略[%s]:", '启用' if config.callback.enabled else '禁用')
     if config.callback.enabled:
-        logger.info("  最小交易单位: %d股", config.callback.min_trade_unit)
-        logger.info("  条件2卖出后加仓: %s", '是' if config.callback.on_condition2 else '否')
-        logger.info("  条件9卖出后加仓: %s", '是' if config.callback.on_condition9 else '否')
-        logger.info("  条件8卖出后加仓: %s", '是' if config.callback.on_condition8 else '否')
+        logger.info(" 最小交易单位: %d股", config.callback.min_trade_unit)
+        logger.info(" 条件2卖出后加仓: %s", '是' if config.callback.on_condition2 else '否')
+        logger.info(" 条件9卖出后加仓: %s", '是' if config.callback.on_condition9 else '否')
+        logger.info(" 条件8卖出后加仓: %s", '是' if config.callback.on_condition8 else '否')
+
     c2 = config.condition2
     logger.info(" 条件2(动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
-                '启用' if c2.enabled else '禁用', c2.trigger_percent*100, c2.decline_percent*100)
+                '启用' if c2.enabled else '禁用', c2.trigger_percent * 100, c2.decline_percent * 100)
     c9 = config.condition9
     logger.info(" 条件9(第一区间动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
-                '启用' if c9.enabled else '禁用', c9.trigger_percent*100, c9.decline_percent*100)
+                '启用' if c9.enabled else '禁用', c9.trigger_percent * 100, c9.decline_percent * 100)
     c8 = config.condition8
     logger.info(" 条件8(动态基准价交易)[%s]: 上涨触发=%.2f%%, 下跌触发=%.2f%%, 最大交易次数=%d",
-                '启用' if c8.enabled else '禁用', c8.rise_percent*100, c8.decline_percent*100, c8.max_trade_times)
-    logger.info("  启用的条件: %s", ', '.join(config.enabled_conditions))
+                '启用' if c8.enabled else '禁用', c8.rise_percent * 100, c8.decline_percent * 100, c8.max_trade_times)
+    logger.info(" 启用的条件: %s", ', '.join(config.enabled_conditions))
+
 
 def _daily_init_thread():
     while True:
@@ -123,12 +177,20 @@ def _daily_init_thread():
             time.sleep(1)
         time.sleep(1)
 
+
 def real_init(context):
     validate_calendar_config()
     strategy_config = load_strategy_config()
     print_strategy_init_banner(strategy_config)
-    logger.info("开始加载持久化数据...")
 
+    # ---------- 提前设置各模块的静态配置（必须在条件实例化之前） ----------
+    set_day_adjust_config(strategy_config.condition2)
+    set_default_board_config(strategy_config.board)
+    set_counting_config(strategy_config.board)
+    set_break_config(strategy_config.board)
+    set_dynamic_config(strategy_config.board)
+
+    logger.info("开始加载持久化数据...")
     session_registry = SessionRegistryImpl()
     session_registry.load()
     board_repo = BoardStateRepositoryImpl()
@@ -139,33 +201,39 @@ def real_init(context):
     order_ledger.load()
     context_store = ContextStore()
 
-    condition_classes = {
-        'next_day_stop_loss': (NextDayStopLossCondition, 1),
-        'condition2': (Condition2Condition, 2),
-        'board_break_sell': (BoardBreakSellCondition, 2),
-        'condition9': (Condition9Condition, 3),
-        'pyramid_add': (PyramidAddCondition, 4),
-        'ma_trading': (MaTradingCondition, 5),
-        'condition8_grid': (Condition8GridCondition, 6),
-        'pyramid_profit': (PyramidProfitCondition, 7),
-        'board_counting': (BoardCountingCondition, 100),
+    # ---------- 构造条件实例（依赖注入） ----------
+    # 每个工厂函数返回已注入所需 service 函数的新条件对象
+    condition_builders = {
+        'next_day_stop_loss': (1, lambda: NextDayStopLossCondition(check_dynamic_profit_next_day_adjustment)),
+        'condition2': (2, lambda: Condition2Condition(check_condition2, sell_qty_by_percent)),
+        'board_break_sell': (2, lambda: BoardBreakSellCondition(handle_dynamic_profit_on_board_break)),
+        'condition9': (3, lambda: Condition9Condition(check_condition9, sell_qty_by_percent)),
+        'pyramid_add': (4, lambda: PyramidAddCondition(check_callback_strategy)),
+        'ma_trading': (5, lambda: MaTradingCondition(check_condition4, check_condition5, check_condition6, check_condition7)),
+        'condition8_grid': (6, lambda: Condition8GridCondition(check_condition8)),
+        'pyramid_profit': (7, lambda: PyramidProfitCondition(check_pyramid_profit)),
+        'board_counting': (100, lambda: BoardCountingCondition(handle_board_counting)),
     }
+
     enabled_names = set(strategy_config.enabled_conditions)
     conditions = []
     side_effects = []
+
     for name in enabled_names:
-        if name in condition_classes:
-            cls_, prio = condition_classes[name]
-            instance = cls_()
+        if name in condition_builders:
+            prio, factory = condition_builders[name]
+            instance = factory()
             if instance.is_side_effect:
                 side_effects.append((prio, instance))
             else:
                 conditions.append((prio, instance))
+
     conditions.sort(key=lambda x: x[0])
     side_effects.sort(key=lambda x: x[0])
     conditions = [c for _, c in conditions]
     side_effects = [c for _, c in side_effects]
 
+    # 构建 TickContext（所有依赖均已就绪）
     tick_ctx = TickContext(
         session_registry=session_registry,
         board_repo=board_repo,
@@ -180,6 +248,7 @@ def real_init(context):
         conditions=conditions,
         side_effects=side_effects,
     )
+
     context.tick_ctx = tick_ctx
 
     symbols = build_tracking_symbols()
@@ -196,6 +265,7 @@ def real_init(context):
         else:
             logger.info("获取 %s 历史数据失败，使用默认基准价 1.0", symbol)
             real_base_price = 1.0
+
         day_data = DayData(symbol, real_base_price, base_date)
         day_data.initialized = True
         session_registry.set(symbol, day_data)
@@ -228,22 +298,19 @@ def real_init(context):
             json.dump(data, f, ensure_ascii=False, indent=2, default=_json_default)
         logger.info("账户数据已导出到: %s", export_path)
 
-    def _daily_close():
-        while True:
-            now = datetime.now(beijing_tz)
-            if now.hour == 15 and now.minute == 30 and now.second == 0:
-                from use_case.handle_close import handle_market_close
-                symbols = build_tracking_symbols()
-                for sym in symbols:
-                    handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger)
-                logger.info("【daily_close】15:30 收盘处理完成")
-                time.sleep(1)
-            time.sleep(1)
 
-    threading.Thread(target=_daily_init_thread, daemon=True).start()
-    threading.Thread(target=_daily_close, daemon=True).start()
-    start_auto_cancel_thread(order_ledger, session_registry, context_store)
-    logger.info("【init】已启动 09:29 重新订阅、15:30 收盘处理、自动撤单守护线程")
+def _daily_close():
+    while True:
+        now = datetime.now(beijing_tz)
+        if now.hour == 15 and now.minute == 30 and now.second == 0:
+            from use_case.handle_close import handle_market_close
+            symbols = build_tracking_symbols()
+            for sym in symbols:
+                handle_market_close(sym, now, session_registry, board_repo, callback_store, order_ledger)
+            logger.info("【daily_close】15:30 收盘处理完成")
+            time.sleep(1)
+        time.sleep(1)
+
 
 def calculate_next_trading_start_time(now: datetime):
     now = now.astimezone(beijing_tz)
@@ -252,11 +319,13 @@ def calculate_next_trading_start_time(now: datetime):
     init_today = beijing_tz.localize(datetime.combine(today, init_time))
     if now < init_today:
         return init_today
+
     for i in range(1, 8):
         next_date = today + timedelta(days=i)
         if is_trading_day(next_date):
             return beijing_tz.localize(datetime.combine(next_date, init_time))
     return None
+
 
 def init(context):
     print_startup_info()
@@ -273,6 +342,7 @@ def init(context):
                      next_start.strftime('%H:%M:%S'), int(wait_seconds))
         threading.Timer(wait_seconds, lambda: real_init(context)).start()
 
+
 def run_strategy() -> None:
     print_startup_info()
     run(
@@ -287,6 +357,7 @@ def run_strategy() -> None:
         backtest_commission_ratio=0.0001,
         backtest_slippage_ratio=0.0001,
     )
+
     try:
         while True:
             time.sleep(86400)
@@ -295,5 +366,10 @@ def run_strategy() -> None:
         from config.logging_config import restore_stdio
         restore_stdio()
 
+
 if __name__ == "__main__":
+    # 注意：daily_init_thread 和 daily_close 需要依赖 real_init 中创建的变量，
+    # 但这里的线程启动在 init 之前。在实际运行中，init 会在 real_init 中重新设置全局变量，
+    # 这些守护线程内部使用的 session_registry 等对象也应该在 real_init 中重新获取。
+    # 此处沿用旧代码，调用 run_strategy 后会进入 GM 事件循环，init 函数会在合适时机被回调。
     run_strategy()

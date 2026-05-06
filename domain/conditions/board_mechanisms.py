@@ -1,12 +1,18 @@
 # domain/conditions/board_mechanisms.py
-from domain.decisions import Condition, Decision, DecisionType
-from service.board_service import (
-    handle_board_counting,
-    handle_board_break_mechanism,
-    handle_dynamic_profit_on_board_break
-)
+# -*- coding: utf-8 -*-
+"""
+占位条件：板机制综合处理（当前未启用）。
+已完全解耦 service 层，若将来需要实现，应通过依赖注入传入具体函数。
+"""
+
+from domain.decisions import Condition
+
 
 class BoardMechanismsCondition(Condition):
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx):
-        # 此条件较为复杂，先返回一个表示“不决策”的占位，保留原执行器
+    condition_name = 'board_mechanisms'
+    is_side_effect = False
+    depends_on = []
+
+    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
+        # 暂无实现
         return None

@@ -1,13 +1,13 @@
 # domain/conditions/condition2.py
 # -*- coding: utf-8 -*-
 """
-条件2动态止盈条件包装器，通过配置注入上下文。
+条件2动态止盈条件包装器，通过构造函数注入检查函数和数量计算函数，
+不再直接依赖 service 层。
 """
+
 from __future__ import annotations
-from typing import Optional
+from typing import Optional, Callable
 from domain.decisions import Condition, Decision, DecisionType
-from service.condition_service import check_condition2
-from service.order_executor import sell_qty_by_percent
 
 
 class Condition2Condition(Condition):
@@ -15,15 +15,25 @@ class Condition2Condition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
+    def __init__(self, check_fn: Callable, sell_qty_fn: Callable) -> None:
+        """
+        :param check_fn: 签名 (context2, increase, current_price, base_price,
+                         board_break_active, config) -> Optional[dict]
+        :param sell_qty_fn: 签名 (available_position, percent) -> int
+        """
+        self._check_fn = check_fn
+        self._sell_qty_fn = sell_qty_fn
+
+    def evaluate(self, symbol, current_price, available_position, day_data,
+                 base_price, ctx, shared_state):
         context2 = ctx.context_store.get('condition2', symbol,
                                          factory=lambda: self._create_context())
         increase = (current_price - base_price) / base_price if base_price > 0 else 0
-        res = check_condition2(context2, increase, current_price, base_price,
-                               board_break_active=False,
-                               config=ctx.config.condition2)
+        res = self._check_fn(context2, increase, current_price, base_price,
+                             board_break_active=False,
+                             config=ctx.config.condition2)
         if res:
-            qty = sell_qty_by_percent(available_position, res["sell_percent"])
+            qty = self._sell_qty_fn(available_position, res["sell_percent"])
             if qty:
                 return Condition2Decision(
                     symbol=symbol,

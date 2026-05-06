@@ -1,6 +1,6 @@
 # domain/conditions/pyramid_add.py
 from domain.decisions import Condition, Decision, DecisionType
-from service.pyramid_service import check_callback_strategy
+from typing import Callable
 
 
 class PyramidAddCondition(Condition):
@@ -8,8 +8,15 @@ class PyramidAddCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
-        result = check_callback_strategy(symbol, current_price, store=ctx.callback_store)
+    def __init__(self, check_fn: Callable) -> None:
+        """
+        :param check_fn: check_callback_strategy(symbol, current_price, store) -> Optional[dict]
+        """
+        self._check_fn = check_fn
+
+    def evaluate(self, symbol, current_price, available_position, day_data,
+                 base_price, ctx, shared_state):
+        result = self._check_fn(symbol, current_price, store=ctx.callback_store)
         if result:
             return PyramidAddDecision(
                 symbol=symbol,

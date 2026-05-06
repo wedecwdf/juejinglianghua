@@ -1,10 +1,11 @@
 # domain/conditions/pyramid_profit.py
 # -*- coding: utf-8 -*-
 """
-金字塔止盈条件包装器，使用配置对象。
+金字塔止盈条件包装器，通过注入检查函数解耦。
 """
+
 from domain.decisions import Condition, Decision, DecisionType
-from service.conditions.pyramid_profit import check_pyramid_profit
+from typing import Callable
 
 
 class PyramidProfitCondition(Condition):
@@ -12,10 +13,18 @@ class PyramidProfitCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def evaluate(self, symbol, current_price, available_position, day_data, base_price, ctx, shared_state):
+    def __init__(self, check_fn: Callable) -> None:
+        """
+        :param check_fn: check_pyramid_profit(symbol, context, current_price,
+                         available_position, pyramid_config, condition8_config) -> Optional[dict]
+        """
+        self._check_fn = check_fn
+
+    def evaluate(self, symbol, current_price, available_position, day_data,
+                 base_price, ctx, shared_state):
         context = ctx.context_store.get('pyramid', symbol,
                                         factory=lambda: self._create_context(base_price))
-        res = check_pyramid_profit(
+        res = self._check_fn(
             symbol, context, current_price, available_position,
             ctx.config.pyramid,
             ctx.config.condition8
