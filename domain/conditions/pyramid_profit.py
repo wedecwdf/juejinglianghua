@@ -1,11 +1,12 @@
 # domain/conditions/pyramid_profit.py
 # -*- coding: utf-8 -*-
 """
-金字塔止盈条件包装器，通过注入检查函数解耦。
+金字塔止盈条件包装器，注入检查函数、PyramidProfitConfig 和 Condition8Config。
 """
 
 from domain.decisions import Condition, Decision, DecisionType
 from typing import Callable
+from config.strategy.config_objects import PyramidProfitConfig, Condition8Config
 
 
 class PyramidProfitCondition(Condition):
@@ -13,12 +14,12 @@ class PyramidProfitCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, check_fn: Callable) -> None:
-        """
-        :param check_fn: check_pyramid_profit(symbol, context, current_price,
-                         available_position, pyramid_config, condition8_config) -> Optional[dict]
-        """
+    def __init__(self, check_fn: Callable,
+                 pyramid_config: PyramidProfitConfig,
+                 condition8_config: Condition8Config) -> None:
         self._check_fn = check_fn
+        self._pyramid_config = pyramid_config
+        self._condition8_config = condition8_config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
@@ -26,13 +27,13 @@ class PyramidProfitCondition(Condition):
                                         factory=lambda: self._create_context(base_price))
         res = self._check_fn(
             symbol, context, current_price, available_position,
-            ctx.config.pyramid,
-            ctx.config.condition8
+            self._pyramid_config,
+            self._condition8_config
         )
         if res:
             return PyramidProfitDecision(
                 symbol=symbol,
-                price=current_price - ctx.config.pyramid.sell_price_offset,
+                price=current_price - self._pyramid_config.sell_price_offset,
                 quantity=res["quantity"],
                 reason=res["reason"],
                 extra={'trigger_data': res['trigger_data']}

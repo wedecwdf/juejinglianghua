@@ -1,11 +1,13 @@
 # domain/conditions/ma.py
 # -*- coding: utf-8 -*-
 """
-MA均线交易条件包装器，通过注入各检查函数解耦。
+MA均线交易条件包装器，注入各检查函数和 MaTradingConfig。
 """
 
-from domain.decisions import Condition, Decision, DecisionType
+from __future__ import annotations
 from typing import Callable
+from domain.decisions import Condition, Decision, DecisionType
+from config.strategy.config_objects import MaTradingConfig
 
 
 class MaTradingCondition(Condition):
@@ -14,18 +16,20 @@ class MaTradingCondition(Condition):
     depends_on = []
 
     def __init__(self, check_c4: Callable, check_c5: Callable,
-                 check_c6: Callable, check_c7: Callable) -> None:
+                 check_c6: Callable, check_c7: Callable,
+                 config: MaTradingConfig) -> None:
         self._c4 = check_c4
         self._c5 = check_c5
         self._c6 = check_c6
         self._c7 = check_c7
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
         context47 = ctx.context_store.get('condition4_7', symbol,
                                           factory=lambda: self._create_context())
         total_buy = ctx.session_registry.get_total_buy_quantity(symbol)
-        ma_config = ctx.config.ma
+        ma_config = self._config
 
         if ma_config.condition4_enabled:
             res = self._c4(day_data, context47, current_price, ma_config)

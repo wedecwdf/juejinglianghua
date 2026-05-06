@@ -4,7 +4,7 @@
 GM 实盘/模拟盘通用入口
 
 完全使用配置对象，无旧常量导入。
-领域层条件类通过依赖注入获取 service 层的检查函数，彻底解耦。
+领域层条件类通过依赖注入获取 service 层的检查函数和配置，彻底解耦。
 """
 
 from __future__ import annotations
@@ -52,7 +52,6 @@ from repository.stores import (
     CallbackTaskStoreImpl,
 )
 
-# 领域条件类（导入类，实例化在 real_init 中通过工厂完成）
 from domain.conditions.next_day_stop_loss import NextDayStopLossCondition
 from domain.conditions.condition2 import Condition2Condition
 from domain.conditions.condition9 import Condition9Condition
@@ -62,15 +61,9 @@ from domain.conditions.condition8_grid import Condition8GridCondition
 from domain.conditions.pyramid_profit import PyramidProfitCondition
 from domain.conditions.pyramid_add import PyramidAddCondition
 
-# 这些是 service 层具体实现，将注入到领域条件中
 from service.condition_service import (
-    check_condition2,
-    check_condition4,
-    check_condition5,
-    check_condition6,
-    check_condition7,
-    check_condition8,
-    check_condition9,
+    check_condition2, check_condition4, check_condition5,
+    check_condition6, check_condition7, check_condition8, check_condition9,
 )
 from service.order_executor import sell_qty_by_percent
 from service.board_service import handle_board_counting, handle_dynamic_profit_on_board_break
@@ -79,7 +72,6 @@ from service.board.counting_service import set_board_config as set_counting_conf
 from service.board.break_service import set_board_config as set_break_config
 from service.board.dynamic_profit_service import set_board_config as set_dynamic_config
 from service.conditions.pyramid_profit import check_pyramid_profit
-# 注入两个函数：检查回调策略 和 完成回调任务
 from service.pyramid_service import check_callback_strategy, complete_callback_task
 from service.day_adjust_service import (
     set_config as set_day_adjust_config,
@@ -87,7 +79,6 @@ from service.day_adjust_service import (
 )
 
 logger = logging.getLogger(__name__)
-
 beijing_tz = pytz.timezone("Asia/Shanghai")
 
 
@@ -102,38 +93,30 @@ def print_startup_info() -> None:
     with _startup_lock:
         if _startup_info_printed:
             return
-
         from config.logging_config import setup_global_logging
         setup_global_logging()
-
         now = datetime.now(beijing_tz)
         set_token(os.getenv("GM_TOKEN", ""))
-
         logger.info("python sdk version: 3.0.178")
         logger.info("c sdk version: 3.8.8")
         logger.info("-" * 50)
         logger.info("程序启动时间: %s", now.strftime('%Y-%m-%d %H:%M:%S'))
-
         if is_trading_day(now.date()):
             logger.info("当前日期 %s 是交易日", now.strftime('%Y-%m-%d'))
         else:
             logger.info("当前日期 %s 不是交易日", now.strftime('%Y-%m-%d'))
-
         if is_in_trading_hours(now):
             logger.info("当前时间 %s 在交易时段内", now.strftime('%H:%M:%S'))
         else:
             logger.info("当前时间 %s 不在交易时段内", now.strftime('%H:%M:%S'))
-
         _startup_info_printed = True
 
 
 def print_strategy_init_banner(config) -> None:
     logger.info("策略初始化开始 @ %s", datetime.now(beijing_tz).strftime('%Y-%m-%d %H:%M:%S'))
     logger.info("使用配置的账户ID: %s", ACCOUNT_ID)
-
     if config.entry.manual_symbols_enabled and config.entry.manual_symbols:
         logger.info("手动输入股票代码: %s", ','.join(config.entry.manual_symbols))
-
     symbols = build_tracking_symbols()
     logger.info("股票代码来源: %s", config.entry.stock_source)
     logger.info("跟踪股票: %s", ','.join(symbols))
@@ -143,7 +126,6 @@ def print_strategy_init_banner(config) -> None:
     if config.entry.account_data_export_enabled:
         logger.info("导出间隔: %d秒", config.entry.account_data_export_interval)
         logger.info("导出目录: %s", config.entry.account_data_export_dir)
-
     logger.info("交易参数配置:")
     logger.info(" 动态回调加仓策略[%s]:", '启用' if config.callback.enabled else '禁用')
     if config.callback.enabled:
@@ -151,7 +133,6 @@ def print_strategy_init_banner(config) -> None:
         logger.info(" 条件2卖出后加仓: %s", '是' if config.callback.on_condition2 else '否')
         logger.info(" 条件9卖出后加仓: %s", '是' if config.callback.on_condition9 else '否')
         logger.info(" 条件8卖出后加仓: %s", '是' if config.callback.on_condition8 else '否')
-
     c2 = config.condition2
     logger.info(" 条件2(动态止盈)[%s]: 触发涨幅=%.2f%%, 回落阈值=%.2f%%",
                 '启用' if c2.enabled else '禁用', c2.trigger_percent * 100, c2.decline_percent * 100)
@@ -183,7 +164,7 @@ def real_init(context):
     strategy_config = load_strategy_config()
     print_strategy_init_banner(strategy_config)
 
-    # ---------- 提前设置各模块的静态配置（必须在条件实例化之前） ----------
+    # 各模块的静态配置（必须在条件实例化之前设置）
     set_day_adjust_config(strategy_config.condition2)
     set_default_board_config(strategy_config.board)
     set_counting_config(strategy_config.board)
@@ -201,23 +182,41 @@ def real_init(context):
     order_ledger.load()
     context_store = ContextStore()
 
-    # ---------- 构造条件实例（依赖注入） ----------
+    # 条件实例化（依赖注入：服务函数 + 各自配置片段）
     condition_builders = {
-        'next_day_stop_loss': (1, lambda: NextDayStopLossCondition(check_dynamic_profit_next_day_adjustment)),
-        'condition2': (2, lambda: Condition2Condition(check_condition2, sell_qty_by_percent)),
-        'board_break_sell': (2, lambda: BoardBreakSellCondition(handle_dynamic_profit_on_board_break)),
-        'condition9': (3, lambda: Condition9Condition(check_condition9, sell_qty_by_percent)),
-        'pyramid_add': (4, lambda: PyramidAddCondition(check_callback_strategy, complete_callback_task)),
-        'ma_trading': (5, lambda: MaTradingCondition(check_condition4, check_condition5, check_condition6, check_condition7)),
-        'condition8_grid': (6, lambda: Condition8GridCondition(check_condition8)),
-        'pyramid_profit': (7, lambda: PyramidProfitCondition(check_pyramid_profit)),
-        'board_counting': (100, lambda: BoardCountingCondition(handle_board_counting)),
+        'next_day_stop_loss': (1, lambda: NextDayStopLossCondition(
+            check_dynamic_profit_next_day_adjustment
+        )),
+        'condition2': (2, lambda: Condition2Condition(
+            check_condition2, sell_qty_by_percent, strategy_config.condition2
+        )),
+        'board_break_sell': (2, lambda: BoardBreakSellCondition(
+            handle_dynamic_profit_on_board_break
+        )),
+        'condition9': (3, lambda: Condition9Condition(
+            check_condition9, sell_qty_by_percent, strategy_config.condition9
+        )),
+        'pyramid_add': (4, lambda: PyramidAddCondition(
+            check_callback_strategy, complete_callback_task
+        )),
+        'ma_trading': (5, lambda: MaTradingCondition(
+            check_condition4, check_condition5, check_condition6, check_condition7,
+            strategy_config.ma
+        )),
+        'condition8_grid': (6, lambda: Condition8GridCondition(
+            check_condition8, strategy_config.condition8
+        )),
+        'pyramid_profit': (7, lambda: PyramidProfitCondition(
+            check_pyramid_profit, strategy_config.pyramid, strategy_config.condition8
+        )),
+        'board_counting': (100, lambda: BoardCountingCondition(
+            handle_board_counting
+        )),
     }
 
     enabled_names = set(strategy_config.enabled_conditions)
     conditions = []
     side_effects = []
-
     for name in enabled_names:
         if name in condition_builders:
             prio, factory = condition_builders[name]
@@ -232,7 +231,7 @@ def real_init(context):
     conditions = [c for _, c in conditions]
     side_effects = [c for _, c in side_effects]
 
-    # 构建 TickContext
+    # 构建轻量 TickContext（只含必要组件，config 已拆解）
     tick_ctx = TickContext(
         session_registry=session_registry,
         board_repo=board_repo,
@@ -243,17 +242,15 @@ def real_init(context):
         sleep_state_manager=order_ledger.as_sleep_state_manager(),
         condition8_tracker=order_ledger.as_condition8_tracker(),
         context_store=context_store,
-        config=strategy_config,
+        condition8_config=strategy_config.condition8,   # 仅用于日志打印
         conditions=conditions,
         side_effects=side_effects,
     )
-
     context.tick_ctx = tick_ctx
 
     symbols = build_tracking_symbols()
     if not symbols:
         symbols = ["SZSE.002842", "SZSE.002513"]
-
     base_date = date.today()
     for symbol in symbols:
         df = load_history_data(symbol, base_date)
@@ -264,7 +261,6 @@ def real_init(context):
         else:
             logger.info("获取 %s 历史数据失败，使用默认基准价 1.0", symbol)
             real_base_price = 1.0
-
         day_data = DayData(symbol, real_base_price, base_date)
         day_data.initialized = True
         session_registry.set(symbol, day_data)
@@ -282,7 +278,6 @@ def real_init(context):
     board_repo.save()
     callback_store.save()
     order_ledger.save()
-
     subscribe(symbols=symbols, frequency='tick', count=1)
     logger.info("已批量订阅 %d 只股票的tick数据", len(symbols))
     logger.info("策略初始化完成")
@@ -318,7 +313,6 @@ def calculate_next_trading_start_time(now: datetime):
     init_today = beijing_tz.localize(datetime.combine(today, init_time))
     if now < init_today:
         return init_today
-
     for i in range(1, 8):
         next_date = today + timedelta(days=i)
         if is_trading_day(next_date):
@@ -356,7 +350,6 @@ def run_strategy() -> None:
         backtest_commission_ratio=0.0001,
         backtest_slippage_ratio=0.0001,
     )
-
     try:
         while True:
             time.sleep(86400)

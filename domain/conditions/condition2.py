@@ -1,13 +1,14 @@
 # domain/conditions/condition2.py
 # -*- coding: utf-8 -*-
 """
-条件2动态止盈条件包装器，通过构造函数注入检查函数和数量计算函数，
-不再直接依赖 service 层。
+条件2动态止盈条件包装器，通过构造函数注入检查函数、数量计算函数和配置。
+彻底解耦 service 层与 ctx.config。
 """
 
 from __future__ import annotations
 from typing import Optional, Callable
 from domain.decisions import Condition, Decision, DecisionType
+from config.strategy.config_objects import Condition2Config
 
 
 class Condition2Condition(Condition):
@@ -15,14 +16,11 @@ class Condition2Condition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, check_fn: Callable, sell_qty_fn: Callable) -> None:
-        """
-        :param check_fn: 签名 (context2, increase, current_price, base_price,
-                         board_break_active, config) -> Optional[dict]
-        :param sell_qty_fn: 签名 (available_position, percent) -> int
-        """
+    def __init__(self, check_fn: Callable, sell_qty_fn: Callable,
+                 config: Condition2Config) -> None:
         self._check_fn = check_fn
         self._sell_qty_fn = sell_qty_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
@@ -31,7 +29,7 @@ class Condition2Condition(Condition):
         increase = (current_price - base_price) / base_price if base_price > 0 else 0
         res = self._check_fn(context2, increase, current_price, base_price,
                              board_break_active=False,
-                             config=ctx.config.condition2)
+                             config=self._config)
         if res:
             qty = self._sell_qty_fn(available_position, res["sell_percent"])
             if qty:

@@ -1,12 +1,13 @@
 # domain/conditions/condition8_grid.py
 # -*- coding: utf-8 -*-
 """
-条件8动态基准价网格交易包装，通过注入 check 函数解耦。
+条件8动态基准价网格交易包装，通过注入 check 函数和配置解耦。
 """
 
 from __future__ import annotations
 from typing import Optional, Callable
 from domain.decisions import Condition, Decision, DecisionType
+from config.strategy.config_objects import Condition8Config
 
 
 class Condition8GridCondition(Condition):
@@ -14,29 +15,25 @@ class Condition8GridCondition(Condition):
     is_side_effect = False
     depends_on = []
 
-    def __init__(self, check_fn: Callable) -> None:
-        """
-        :param check_fn: 签名 (day_data, context8, current_price, available_position,
-                         order_ledger, config) -> Optional[dict]
-        """
+    def __init__(self, check_fn: Callable, config: Condition8Config) -> None:
         self._check_fn = check_fn
+        self._config = config
 
     def evaluate(self, symbol, current_price, available_position, day_data,
                  base_price, ctx, shared_state):
-        config = ctx.config.condition8
         context8 = ctx.context_store.get('condition8', symbol,
-                                         factory=lambda: self._create_context(base_price, config))
+                                         factory=lambda: self._create_context(base_price, self._config))
         res = self._check_fn(
             day_data, context8, current_price, available_position,
             order_ledger=ctx.order_repo,
-            config=config
+            config=self._config
         )
         if not res:
             return None
 
         total_sell = context8.condition8_total_sell_today
         total_buy = context8.condition8_total_buy_today
-        max_total = config.max_total_quantity.get(symbol, 10000)
+        max_total = self._config.max_total_quantity.get(symbol, 10000)
         qty = res["quantity"]
         side = res["side"]
 
@@ -55,7 +52,7 @@ class Condition8GridCondition(Condition):
         return None
 
     @staticmethod
-    def _create_context(base_price, config):
+    def _create_context(base_price, config: Condition8Config):
         from domain.contexts.condition8 import Condition8Context
         return Condition8Context(
             base_price,
