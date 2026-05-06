@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 条件8：系统状态检查、业务规则校验、数据获取。
-所有参数从 config 对象获取，不再使用全局常量。
+所有参数从 config 对象获取。
 """
 from __future__ import annotations
 import logging
@@ -76,7 +76,8 @@ def _fetch_data(order_ledger: AbstractOrderLedger, symbol: str,
         if ref_price is None or ref_price <= 0:
             ref_price = 0.0
     rise_threshold, decline_threshold = _get_condition8_thresholds(symbol, config)
-    stock_type = _get_stock_frequency_type(symbol)
+    # 修复：传入 config 参数
+    stock_type = _get_stock_frequency_type(symbol, config)
     type_desc = "高频" if stock_type == 'high' else ("低频" if stock_type == 'low' else "默认")
     return {
         "ref_price": ref_price,
