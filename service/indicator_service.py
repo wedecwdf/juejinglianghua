@@ -1,27 +1,27 @@
 # service/indicator_service.py
 # -*- coding: utf-8 -*-
 """
-指标计算，无外部依赖
+指标计算，通过参数获取技术指标配置，不再依赖全局常量。
 """
+
 from __future__ import annotations
 import logging
 import numpy as np
 import talib as ta
 import pandas as pd
-from typing import Any, Dict, Optional
-from config.strategy import (
-    MA_PERIODS, CCI_PERIOD, MACD_FAST, MACD_SLOW, MACD_SIGNAL, MACD_MIN_PERIOD,
-    CCI_UPPER_LIMIT, CCI_LOWER_LIMIT, VOLUME_BAR_COUNT, MACD_HIST_BAR_COUNT
-)
+from typing import Any, Dict
+from config.strategy.config_objects import TechIndicatorConfig
 from domain.day_data import DayData
 
 logger = logging.getLogger(__name__)
 
-def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
+
+def calculate_indicators(df: pd.DataFrame, day_data: DayData,
+                         tech_config: TechIndicatorConfig) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
     close_prices = df["close"].values.astype(float)
 
-    for period in MA_PERIODS:
+    for period in tech_config.ma_periods:
         if len(close_prices) >= period:
             ma_val = ta.SMA(close_prices, timeperiod=period)[-1]
             if not np.isnan(ma_val):
@@ -32,18 +32,18 @@ def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
                     day_data.ma8 = float(ma_val)
                 elif period == 12:
                     day_data.ma12 = float(ma_val)
-            else:
-                results[f"MA{period}"] = None
+        else:
+            results[f"MA{period}"] = None
 
     high_prices = df["high"].values.astype(float)
     low_prices = df["low"].values.astype(float)
 
-    if len(close_prices) >= CCI_PERIOD:
+    if len(close_prices) >= tech_config.cci_period:
         tp = (high_prices + low_prices + close_prices) / 3.0
-        ma_tp = ta.SMA(tp, timeperiod=CCI_PERIOD)
+        ma_tp = ta.SMA(tp, timeperiod=tech_config.cci_period)
         mad = np.zeros_like(tp)
-        for i in range(CCI_PERIOD - 1, len(tp)):
-            window = tp[i - CCI_PERIOD + 1:i + 1]
+        for i in range(tech_config.cci_period - 1, len(tp)):
+            window = tp[i - tech_config.cci_period + 1:i + 1]
             mad[i] = np.mean(np.abs(window - ma_tp[i]))
         cci_values = np.where(mad != 0, (tp - ma_tp) / (0.015 * mad), 0)
         cci_val = float(cci_values[-1])
@@ -52,12 +52,12 @@ def calculate_indicators(df: pd.DataFrame, day_data: DayData) -> Dict[str, Any]:
     else:
         results["CCI"] = None
 
-    if len(close_prices) >= MACD_MIN_PERIOD:
+    if len(close_prices) >= tech_config.macd_min_period:
         macd, macd_signal, macd_hist = ta.MACD(
             close_prices,
-            fastperiod=MACD_FAST,
-            slowperiod=MACD_SLOW,
-            signalperiod=MACD_SIGNAL
+            fastperiod=tech_config.macd_fast,
+            slowperiod=tech_config.macd_slow,
+            signalperiod=tech_config.macd_signal
         )
         macd_hist_all = macd_hist * 2
         results["MACD_hist"] = float(macd_hist_all[-1]) if not np.isnan(macd_hist_all[-1]) else None

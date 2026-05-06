@@ -6,7 +6,7 @@ tick 处理流程中可抽离的纯逻辑服务函数，无副作用，可独立
 
 from __future__ import annotations
 import logging
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from domain.day_data import DayData
 from domain.contexts.tick_context import TickContext
@@ -16,7 +16,6 @@ logger = logging.getLogger(__name__)
 
 
 def reset_post_cancel_flags(ctx: TickContext, symbol: str) -> None:
-    """清除条件2/9的撤单后重检查标记"""
     try:
         context2 = ctx.context_store.get('condition2', symbol)
         if context2.post_cancel_rechecked:
@@ -32,20 +31,15 @@ def reset_post_cancel_flags(ctx: TickContext, symbol: str) -> None:
 
 
 def handle_post_cancel_refresh(ctx: TickContext, symbol: str, day_data: DayData) -> None:
-    """如果该标的上次撤单已清除，则重新刷新技术指标"""
     if ctx.cancel_lock_manager.pop_cancelled(symbol):
         logger.info("【撤单再判断】%s 上次撤单已清除，立即重新判断条件", symbol)
-        do_refresh_indicators(symbol, day_data)
+        do_refresh_indicators(symbol, day_data, ctx.tech_indicator_config)
 
 
 def prepare_tick_environment(symbol: str, tick: Dict[str, Any],
                              ctx: TickContext) -> DayData:
-    """
-    更新日数据、重置撤单标记、处理撤单后刷新。
-    返回当前 DayData 对象。
-    """
     from .tick_data_service import update_day_data as do_update
-    tick_date = tick["created_at"].astimezone().date()  # tick 已带时区，简化
+    tick_date = tick["created_at"].astimezone().date()
     day_data = do_update(symbol, tick, tick_date, ctx.session_registry)
     reset_post_cancel_flags(ctx, symbol)
     handle_post_cancel_refresh(ctx, symbol, day_data)

@@ -17,7 +17,7 @@ from domain.stores.order_interfaces import (
     SleepStateManager,
     Condition8OrderTracker,
 )
-from config.strategy.config_objects import Condition8Config
+from config.strategy.config_objects import Condition8Config, TechIndicatorConfig
 from domain.decisions import Condition
 
 
@@ -27,7 +27,6 @@ class TickContext:
     board_repo: AbstractBoardStateRepository
     callback_store: AbstractCallbackTaskStore
 
-    # 拆分后的小接口
     order_repo: OrderRepository
     condition_trigger_repo: ConditionTriggerRepo
     cancel_lock_manager: CancelLockManager
@@ -36,8 +35,9 @@ class TickContext:
 
     context_store: ContextStore
 
-    # 仅保留条件8配置用于日志打印，其他条件配置已注入到条件实例中
+    # 仅保留大量条件用到的配置片段，而不是整个 StrategyConfig
     condition8_config: Condition8Config
+    tech_indicator_config: TechIndicatorConfig   # 用于指标刷新和历史数据加载
 
     conditions: List[Condition] = field(default_factory=list)
     side_effects: List[Condition] = field(default_factory=list)

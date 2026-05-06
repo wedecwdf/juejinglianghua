@@ -1,31 +1,36 @@
 # config/strategy/__init__.py
 # -*- coding: utf-8 -*-
 """
-策略参数统一入口。
-提供配置对象和纯技术指标常量。
+策略参数统一入口。技术指标参数请使用 StrategyConfig 中的 tech_indicator 字段。
 """
+
 from .config_objects import (
     load_strategy_config,
     StrategyConfig,
+    TechIndicatorConfig,
     Condition2Config,
     Condition9Config,
     Condition8Config,
     MaTradingConfig,
     PyramidProfitConfig,
     CallbackAddConfig,
+    BoardConfig,
+    EntryConfig,
 )
-from .indicators import *   # 导出技术指标参数（仅此一处旧常量保留）
+
+# 为兼容性保留常量引用（但不再推荐直接使用）
+from .indicators import *   # 空文件，无实际导出
 
 __all__ = [
     'load_strategy_config',
     'StrategyConfig',
+    'TechIndicatorConfig',
     'Condition2Config',
     'Condition9Config',
     'Condition8Config',
     'MaTradingConfig',
     'PyramidProfitConfig',
     'CallbackAddConfig',
-    'MA_PERIODS', 'CCI_PERIOD', 'MACD_FAST', 'MACD_SLOW', 'MACD_SIGNAL',
-    'MACD_MIN_PERIOD', 'CCI_UPPER_LIMIT', 'CCI_LOWER_LIMIT',
-    'VOLUME_BAR_COUNT', 'MACD_HIST_BAR_COUNT', 'MAX_HISTORY_DAYS',
+    'BoardConfig',
+    'EntryConfig',
 ]

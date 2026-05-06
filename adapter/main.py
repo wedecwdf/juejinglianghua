@@ -1,4 +1,3 @@
-# adapter/main.py
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 """
@@ -6,7 +5,7 @@ GM 实盘/模拟盘通用入口
 
 完全使用配置对象，无旧常量导入。
 领域层条件类通过依赖注入获取 service 层的检查函数和配置，彻底解耦。
-所有模块级 set_config 调用已清除。
+所有模块级 set_config 调用已清除，技术指标参数通过 TickContext 传递。
 """
 
 from __future__ import annotations
@@ -227,7 +226,7 @@ def real_init(context):
     conditions = [c for _, c in conditions]
     side_effects = [c for _, c in side_effects]
 
-    # 构建 TickContext（仅保留 condition8_config 用于日志，其他配置已注入）
+    # 构建 TickContext
     tick_ctx = TickContext(
         session_registry=_session_registry,
         board_repo=_board_repo,
@@ -239,6 +238,7 @@ def real_init(context):
         condition8_tracker=_order_ledger.as_condition8_tracker(),
         context_store=context_store,
         condition8_config=strategy_config.condition8,
+        tech_indicator_config=strategy_config.tech_indicator,   # 新增
         conditions=conditions,
         side_effects=side_effects,
     )
@@ -248,8 +248,9 @@ def real_init(context):
     if not symbols:
         symbols = ["SZSE.002842", "SZSE.002513"]
     base_date = date.today()
+    tech_cfg = strategy_config.tech_indicator
     for symbol in symbols:
-        df = load_history_data(symbol, base_date)
+        df = load_history_data(symbol, base_date, tech_cfg.max_history_days)
         if df is not None and not df.empty:
             last_row = df.iloc[-1]
             real_base_price = float(last_row["close"])
@@ -266,9 +267,9 @@ def real_init(context):
         dd = _session_registry.get(symbol)
         if dd is None:
             continue
-        df = load_history_data(symbol, base_date)
+        df = load_history_data(symbol, base_date, tech_cfg.max_history_days)
         if df is not None and not df.empty:
-            calculate_indicators(df, dd)
+            calculate_indicators(df, dd, tech_cfg)
 
     _session_registry.save()
     _board_repo.save()

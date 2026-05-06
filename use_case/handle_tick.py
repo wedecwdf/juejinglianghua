@@ -32,7 +32,7 @@ def handle_tick(tick: Dict[str, Any], ctx: TickContext) -> None:
         logger.info("【撤单保护】%s 正在撤单中，跳过本次 tick 处理", symbol)
         return
 
-    # 1. 准备环境（更新行情，处理撤单后状态）
+    # 1. 准备环境（更新行情，处理撤单后状态）——内部会调用 refresh_indicators，需要传递 tech_config
     day_data = prepare_tick_environment(symbol, tick, ctx)
 
     # 2. 获取可用持仓与基准价
